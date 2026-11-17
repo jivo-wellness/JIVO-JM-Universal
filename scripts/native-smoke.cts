@@ -13,7 +13,7 @@ import path = require('node:path')
 // EXPO_PUBLIC_API_ORIGIN uses. The script toggles `adb reverse tcp:<api-port> tcp:<api-port>` to simulate offline.
 const root = path.resolve(__dirname, '..')
 const execute = promisify(execFile)
-const app = 'com.anonymous.jivojmuniversal'
+const app = 'com.jivo.jm'
 function option(name: string, env: string) {
   const at = process.argv.indexOf(`--${name}`)
   const inline = process.argv.find(arg => arg.startsWith(`--${name}=`))

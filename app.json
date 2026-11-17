@@ -8,6 +8,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.jivo.jm",
       "icon": "./public/icons/maskable-512.png"
     },
     "android": {
@@ -16,7 +17,7 @@
         "foregroundImage": "./public/icons/maskable-512.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.jivojmuniversal",
+      "package": "com.jivo.jm",
       "blockedPermissions": [
         "android.permission.WRITE_CONTACTS"
       ]

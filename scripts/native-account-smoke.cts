@@ -9,7 +9,7 @@ const run = promisify(execFile)
 const root = path.resolve(__dirname, '..')
 const adbPath = path.join(process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || path.join(process.env.LOCALAPPDATA!, 'Android', 'Sdk'), 'platform-tools', 'adb.exe')
 const serial = process.env.JM_TEST_DEVICE || 'emulator-5554'
-const app = 'com.anonymous.jivojmuniversal'
+const app = 'com.jivo.jm'
 const origin = 'http://127.0.0.1:8000'
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 async function adb(...args: string[]) { return (await run(adbPath, ['-s', serial, ...args], { windowsHide: true, timeout: 45000, maxBuffer: 4 * 1024 * 1024 })).stdout }
