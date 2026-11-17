@@ -71,7 +71,7 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Install native SDK packages required by React Native 0.88
-        run: sdkmanager "platforms;android-37" "build-tools;37.0.0" "ndk;27.1.12297006" "cmake;3.30.5"
+        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
 
       - name: Generate Android project
         run: npx --no-install expo prebuild --platform android --no-install
