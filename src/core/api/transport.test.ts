@@ -23,16 +23,25 @@ describe('transport security contracts', () => {
     expect(normalizeOrigin('https://test.example.invalid/')).toBe('https://test.example.invalid')
     expect(normalizeOrigin('http://127.0.0.1:8081')).toBe('http://127.0.0.1:8081')
   })
-  it('uses the current CSRF cookie for every unsafe request without writing Origin or Cookie', async () => {
+  it('uses the current CSRF cookie for every unsafe request without writing Cookie or Referer', async () => {
     const { api, read } = setup()
     read.mockResolvedValueOnce('before-login').mockResolvedValueOnce('after-login')
     const adapter = vi.fn(success)
     await api.post('/auth/login/', {}, { adapter }); await api.post('/conversations/', {}, { adapter })
     expect(adapter.mock.calls.map(([c]) => c.headers.get('X-CSRFToken'))).toEqual(['before-login', 'after-login'])
     for (const [config] of adapter.mock.calls) {
-      expect(config.headers.has('Cookie')).toBe(false); expect(config.headers.has('Origin')).toBe(false); expect(config.headers.has('Referer')).toBe(false)
+      expect(config.headers.has('Cookie')).toBe(false); expect(config.headers.has('Referer')).toBe(false)
       expect(config.withCredentials).toBe(true)
     }
+  })
+  it('states the configured origin on native unsafe requests only (Django refuses HTTPS with no Origin/Referer)', async () => {
+    const adapter = vi.fn(success)
+    const native = setup()
+    await native.api.post('/auth/login/', {}, { adapter }); await native.api.get('/me/', { adapter })
+    expect(adapter.mock.calls.map(([c]) => c.headers.get('Origin'))).toEqual(['https://test.example.invalid', undefined])
+    const web = createTransport({ origin: 'https://test.example.invalid', native: false, csrf: async () => 'csrf-test', lost: () => {} })
+    adapter.mockClear(); await web.api.post('/auth/login/', {}, { adapter })
+    expect(adapter.mock.calls[0][0].headers.has('Origin')).toBe(false)
   })
   it('fails closed if the CSRF cookie is unavailable', async () => {
     const { api, read } = setup(); read.mockResolvedValue(undefined)

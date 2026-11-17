@@ -33,6 +33,9 @@ export function createTransport(options: TransportOptions) {
         ? 'The native cookie store has no CSRF cookie. Verify the existing server cookie/CSRF contract; no security checks were bypassed.'
         : 'The CSRF cookie is unavailable. Use the approved same-host test setup and retry sign-in.')
       config.headers.set('X-CSRFToken', csrf)
+      // Browsers send Origin themselves. Native HTTP sends neither Origin nor Referer, and Django's CSRF check
+      // refuses an HTTPS request with neither ("no Referer"), so native states the configured API origin.
+      if (options.native) config.headers.set('Origin', origin)
     }
     return config
   })
