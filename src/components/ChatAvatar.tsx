@@ -14,6 +14,8 @@ function colorFor(seed: string) { let hash = 0; for (const ch of seed) hash = (h
 export function ChatAvatar({ name, seed, uri, group = false, size = 48 }: { name: string; seed?: string; uri?: string | null; group?: boolean; size?: number }) {
   const c = useColors(); const [failed, setFailed] = useState<string | null>(null)
   return <View style={{ width: size, height: size, flexShrink: 0, borderRadius: size / 2, backgroundColor: group && !(uri && failed !== uri) ? c.successSoft : colorFor(seed ?? name), alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-    {uri && failed !== uri ? <Image source={{ uri }} style={{ width: size, height: size }} onError={() => setFailed(uri)} /> : group ? <Icon name="users" size={20} color={c.brand} /> : <Text style={{ color: '#ffffff', fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: size * 0.38 }}>{initials(name)}</Text>}
+    {group ? <Icon name="users" size={20} color={c.brand} /> : <Text style={{ color: '#ffffff', fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: size * 0.38 }}>{initials(name)}</Text>}
+    {/* The photo covers the same fixed circle (cover fit); the initials underneath show while it loads or if it fails. */}
+    {uri && failed !== uri && <Image source={{ uri }} resizeMode="cover" style={{ position: 'absolute', top: 0, left: 0, width: size, height: size }} onError={() => setFailed(uri)} />}
   </View>
 }

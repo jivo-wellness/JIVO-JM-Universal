@@ -11,7 +11,7 @@ export const queuedMedia = {
   if (file.size + (root.exists ? root.size ?? 0 : 0) > 500 * 1024 * 1024) throw Error('Offline files are limited to 500 MB. Send or discard queued files first.')
   const dir = messageDir(owner, client); dir.create({ intermediates: true, idempotent: true })
   const target = new File(dir, segment(key)); new File(file.uri).copy(target)
-  return { key, name: file.name, mime: file.mime, size: target.size }
+  return { key, name: file.name, mime: file.mime, size: target.size, ...(file.sticker ? { sticker: true } : {}) }
  },
  async open(owner: string, client: string, media: QueuedMedia): Promise<PickedFile> {
   const file = new File(messageDir(owner, client), segment(media.key))

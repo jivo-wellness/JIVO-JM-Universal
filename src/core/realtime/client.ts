@@ -5,6 +5,12 @@ export interface Socket {
   onclose: ((event: { code: number }) => void) | null; onerror: (() => void) | null
 }
 export type ConnectionStatus = 'stopped' | 'connecting' | 'open' | 'reconnecting' | 'offline' | 'forbidden'
+export interface RealtimeOptions {
+  /** How long an open socket survives the app leaving the foreground (system picker, permission or biometric prompt, app switcher). */
+  pauseGraceMs?: number
+  /** After a return within the grace period: how long the kept socket has to answer a PING before it is replaced. */
+  probeMs?: number
+}
 export class RealtimeClient {
   private ws: Socket | null = null
   private wanted = false
@@ -15,11 +21,13 @@ export class RealtimeClient {
   private retryTimer?: ReturnType<typeof setTimeout>
   private heartbeat?: ReturnType<typeof setInterval>
   private handshake?: ReturnType<typeof setTimeout>
+  private pauseTimer?: ReturnType<typeof setTimeout>
+  private probe?: ReturnType<typeof setTimeout>
   private status: ConnectionStatus = 'stopped'
   private statusListeners = new Set<() => void>()
   private focused: string | null = null
   private listeners = new Map<string, Set<(frame: Frame<never>) => void>>()
-  constructor(private readonly url: string, private readonly makeSocket: (url: string) => Socket, private readonly revoked: () => void) {}
+  constructor(private readonly url: string, private readonly makeSocket: (url: string) => Socket, private readonly revoked: () => void, private readonly options: RealtimeOptions = {}) {}
   snapshot = () => this.status
   subscribe = (listener: () => void) => { this.statusListeners.add(listener); return () => { this.statusListeners.delete(listener) } }
   private setStatus(status: ConnectionStatus) {
@@ -40,11 +48,35 @@ export class RealtimeClient {
   }
   start() { if (this.wanted || !this.url) return; this.wanted = true; this.connect() }
   stop() { this.wanted = false; this.opened = false; this.retries = 0; this.focused = null; this.disconnect(); this.setStatus('stopped') }
+  /**
+   * Foreground && online (subscribeLifecycle). Leaving the foreground tells the server at once (CLIENT_STATE visible:
+   * false, so notifications are pushed) but keeps an open socket for a grace period: a short trip to a system picker,
+   * permission or biometric prompt must not tear the connection down, show "Reconnecting…" and RESYNC every screen.
+   */
   setActive(value: boolean) {
     if (this.active === value) return
     this.active = value
-    if (!value) { this.disconnect(); if (this.wanted) this.setStatus('offline') }
-    else if (this.wanted) this.connect()
+    if (!value) {
+      if (this.wanted && this.ws && this.status === 'open') {
+        this.sendState()
+        clearTimeout(this.pauseTimer); clearTimeout(this.probe)
+        this.pauseTimer = setTimeout(() => { this.pauseTimer = undefined; if (!this.active) { this.disconnect(); if (this.wanted) this.setStatus('offline') } }, this.options.pauseGraceMs ?? 10_000)
+        return
+      }
+      this.disconnect(); if (this.wanted) this.setStatus('offline')
+    } else if (this.wanted) {
+      clearTimeout(this.pauseTimer); this.pauseTimer = undefined
+      if (this.ws) { this.sendState(); this.checkAlive(this.ws); return }
+      this.connect()
+    }
+  }
+  /** The OS may have dropped a kept socket silently while the app was away: it must answer a PING soon or be replaced. */
+  private checkAlive(ws: Socket) {
+    if (this.status !== 'open') return
+    const asked = Date.now()
+    clearTimeout(this.probe)
+    if (!this.send('PING')) return
+    this.probe = setTimeout(() => { if (this.ws === ws && this.lastRx < asked) { this.disconnect(); this.schedule() } }, this.options.probeMs ?? 10_000)
   }
   setFocusedConversation(id: string | null) { this.focused = id; this.sendState() }
   focusedConversation() { return this.focused }
@@ -55,12 +87,15 @@ export class RealtimeClient {
   }
   private sendState() { this.send('CLIENT_STATE', { visible: this.active, focused_conversation: this.focused }) }
   private disconnect() {
-    clearTimeout(this.retryTimer); clearInterval(this.heartbeat); clearTimeout(this.handshake)
+    clearTimeout(this.retryTimer); clearInterval(this.heartbeat); clearTimeout(this.handshake); clearTimeout(this.pauseTimer); clearTimeout(this.probe)
+    this.pauseTimer = undefined
     const ws = this.ws; this.ws = null
     if (ws) { ws.onopen = null; ws.onmessage = null; ws.onclose = null; ws.onerror = null; try { ws.close(1000) } catch { /* already closed by the OS */ } }
   }
   private schedule(slow = false) {
-    if (!this.wanted || !this.active) return
+    if (!this.wanted) return
+    // Lost while in the background: stay quiet until the app is back (setActive(true) connects).
+    if (!this.active) { this.setStatus('offline'); return }
     this.setStatus(this.opened ? 'reconnecting' : 'connecting')
     clearTimeout(this.retryTimer)
     const delay = slow ? 60000 : Math.min(30000, 1000 * 2 ** this.retries++) + Math.floor(Math.random() * 500)
@@ -102,7 +137,7 @@ export class RealtimeClient {
     ws.onerror = () => { /* close handles retry; heartbeat handles a silent connection */ }
     ws.onclose = event => {
       if (this.ws !== ws) return
-      this.ws = null; clearInterval(this.heartbeat); clearTimeout(this.handshake)
+      this.ws = null; clearInterval(this.heartbeat); clearTimeout(this.handshake); clearTimeout(this.probe); clearTimeout(this.pauseTimer); this.pauseTimer = undefined
       if (event.code === 4401) { this.stop(); this.revoked(); return }
       if (event.code === 4403) { this.stop(); this.setStatus('forbidden'); this.emit({ type: 'FORBIDDEN', data: {} }); return }
       this.schedule(event.code === 4429)

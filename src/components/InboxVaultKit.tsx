@@ -76,7 +76,7 @@ export function Select<T extends string>({ value, options, onChange, label, styl
 /** Reference Badge: rounded-full text-xs; tones brand / neutral / danger / warning / info. */
 export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'brand' | 'neutral' | 'danger' | 'warning' | 'info' }) {
   const c = useColors()
-  const [bg, fg] = tone === 'brand' ? [c.soft, c.primary] : tone === 'danger' ? [c.dangerSoft, c.danger] : tone === 'warning' ? [c.warningSoft, c.warning] : tone === 'info' ? [c.infoSoft, c.info] : [c.neutral, c.muted]
+  const [bg, fg] = tone === 'brand' ? [c.soft, c.softText] : tone === 'danger' ? [c.dangerSoft, c.danger] : tone === 'warning' ? [c.warningSoft, c.warning] : tone === 'info' ? [c.infoSoft, c.info] : [c.neutral, c.muted]
   return <View style={{ borderRadius: 999, backgroundColor: bg, paddingHorizontal: 8, paddingVertical: 2 }}><Text style={{ fontFamily: font.m, fontWeight: '500', fontSize: 12, lineHeight: 16, color: fg }}>{children}</Text></View>
 }
 

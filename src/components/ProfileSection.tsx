@@ -23,7 +23,7 @@ export function ProfileSection({ title, aside, badge, children }: { title: strin
 /** Reference Badge: small rounded pill. */
 export function Pill({ children, tone = 'neutral' }: { children: string; tone?: 'neutral' | 'brand' | 'success' | 'warning' | 'info' }) {
   const c = useColors()
-  const [bg, fg] = { neutral: [c.neutral, c.muted], brand: [c.soft, c.primary], success: [c.successSoft, c.success], warning: [c.warningSoft, c.warning], info: [c.infoSoft, c.info] }[tone]
+  const [bg, fg] = { neutral: [c.neutral, c.muted], brand: [c.soft, c.softText], success: [c.successSoft, c.softText], warning: [c.warningSoft, c.warning], info: [c.infoSoft, c.info] }[tone]
   return <Text style={{ backgroundColor: bg, color: fg, fontFamily: 'Inter_500Medium', fontWeight: '500', fontSize: 12, lineHeight: 16, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden', alignSelf: 'center' }}>{children}</Text>
 }
 

@@ -1,6 +1,6 @@
 import { AppLockSetting } from './AppLock'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, ScrollView, Text, View, useWindowDimensions } from 'react-native'
+import { ActivityIndicator, Platform, RefreshControl, ScrollView, Text, View, useWindowDimensions } from 'react-native'
 import { InstallApp } from './InstallApp'
 import { ProfileImages } from './ProfileImages'
 import { ConfirmDialog, Sheet } from './Sheet'
@@ -16,17 +16,25 @@ import { PasswordField } from './PasswordField'
 import { ProfileSection, Pill, SettingRow, mutedText } from './ProfileSection'
 import { subscribeSensitiveView } from '../shared/sensitiveLifecycle'
 import { SensitiveRequestGuard } from '../shared/sensitive'
-import { Button, Field, Label, radius, styles, useColors } from '../ui'
+import { Button, ErrorState, Field, Label, radius, styles, useColors } from '../ui'
 import { formatDate, formatRelative } from '../shared/utils/format'
 import { SecurityNotices } from './SecurityNotices'
 import { PasskeyRow } from './PasskeyRow'
 import { IconTextButton } from './AdminUi'
+import { useReconnectRetry } from '../shared/useReconnectRetry'
+import { BlockedContacts } from './BlockContact'
 const AUTH_LABEL: Record<string, string> = { password: 'Password', password_totp: 'Password + one-time code', passkey: 'Passkey', password_recovery: 'Password + recovery code' }
 export function ProfilePanel() {
   const { me, adopt, logout } = useSession(); const c = useColors(); const { width } = useWindowDimensions(); const { jivo, canChangePassword } = useIdentity()
   const [phoneError, setPhoneError] = useState('')
   const [name, setName] = useState(me?.display_name ?? ''); const [phone, setPhone] = useState(me?.phone ?? ''); const [bio, setBio] = useState(me?.bio ?? '')
   const [devices, setDevices] = useState<profile.DeviceSession[]>([]); const [revision, setRevision] = useState(0)
+  // Reference ProfilePage: the device list has its own loading / error / Try again (DataState) inside its section.
+  const [devicesState, setDevicesState] = useState<{ loading: boolean; error: string }>({ loading: true, error: '' })
+  const retryDevices = () => { setDevicesState({ loading: true, error: '' }); setRevision(v => v + 1) }
+  // Automatic reloads happen only after a real reconnect (useReconnectRetry, rate-limited) or on pull-to-refresh.
+  useReconnectRetry(!!devicesState.error, retryDevices)
+  const [noticesRevision, setNoticesRevision] = useState(0); const [pulling, setPulling] = useState(false)
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('')
   const [currentPassword, setCurrentPassword] = useState(''); const [password, setPassword] = useState(''); const [repeat, setRepeat] = useState('')
   const [email, setEmail] = useState(''); const [passkeyName, setPasskeyName] = useState<string | null>(null); const [changingEmail, setChangingEmail] = useState(false); const [signingOut, setSigningOut] = useState(false)
@@ -37,7 +45,7 @@ export function ProfilePanel() {
   const [confirmation, setConfirmation] = useState<{ title: string; action: () => Promise<unknown> } | null>(null)
   useEffect(() => {
     let active = true
-    profile.listSessions().then(data => { if (active) setDevices(data) }).catch(e => { if (active) setError(errorMessage(e)) })
+    profile.listSessions().then(data => { if (active) { setDevices(data); setDevicesState({ loading: false, error: '' }) } }).catch(e => { if (active) setDevicesState({ loading: false, error: errorMessage(e) }) })
     return () => { active = false }
   }, [revision])
   async function run(action: () => Promise<unknown>, message: string) {
@@ -50,7 +58,12 @@ export function ProfilePanel() {
   const mismatch = repeat.length > 0 && password !== repeat
   const others = devices.filter(d => !d.current).length
   const title = jivo ? me?.full_name || me?.name : me?.name
-  return <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+  // Pull-to-refresh: the profile (/me/), the device list and the security notices, keeping what is shown meanwhile.
+  const pull = () => {
+    setPulling(true); setNoticesRevision(v => v + 1); setDevicesState(s => ({ ...s, error: '' })); setRevision(v => v + 1)
+    void adopt().catch(() => undefined).finally(() => setPulling(false))
+  }
+  return <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={pulling} onRefresh={pull} colors={[c.brand]} tintColor={c.brand} />}>
     {isWide(width) && <View style={{ marginBottom: 4 }}><Label large>{title}</Label><Text style={{ marginTop: 4, color: c.muted, fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20 }}>{jivo ? me?.email : me?.bio || me?.email}</Text></View>}
     {!!error && <Text accessibilityRole="alert" style={{ color: c.danger, fontSize: 14 }}>{error}</Text>}
     {!!notice && <Text accessibilityRole="alert" style={{ color: c.success, fontFamily: 'Inter_500Medium', fontSize: 14 }}>{notice}</Text>}{busy && <ActivityIndicator color={c.brand} />}
@@ -91,7 +104,7 @@ export function ProfilePanel() {
         {!me?.security.mfa_required && !me?.security.mfa_enrolled && <Text style={{ fontFamily: 'Inter_400Regular', color: c.muted, fontSize: 14, lineHeight: 20, marginBottom: 8, marginTop: -8 }}>Protect your account with a second step at sign-in.</Text>}
         <View style={{ marginTop: -12 }}>
           {me?.security.passkeys.map((p, index) => <PasskeyRow key={p.id} passkey={p} first={index === 0} disabled={busy} onRename={name => run(() => api.patch(`/auth/passkeys/${p.id}/`, { name }), 'Passkey renamed.')} onRemove={() => setConfirmation({ title: `Remove “${p.name}”? It will no longer sign you in.`, action: () => api.delete(`/auth/passkeys/${p.id}/`) })} />)}
-          <SettingRow chip icon="fingerprint" first={!me?.security.passkeys.length} title="Passkeys" detail={passkeysSupported() ? 'Sign in with your fingerprint, face, or screen lock.' : 'Native passkey enrollment requires platform association and credential-provider integration.'}>
+          <SettingRow chip icon="fingerprint" first={!me?.security.passkeys.length} title="Passkeys" detail={passkeysSupported() ? 'Sign in with your fingerprint, face, or screen lock.' : (Platform.OS === 'web' ? 'This browser cannot use passkeys.' : 'Passkeys need Android 9 or later, or iOS 16 or later.')}>
             {passkeysSupported() && (passkeyName === null ? <Button size="sm" variant={me?.security.passkeys.length ? 'secondary' : 'primary'} title="Add a passkey" onPress={() => setPasskeyName('')} />
               : <><View style={{ width: wide ? 200 : undefined, flexGrow: wide ? 0 : 1 }}><Field label="Passkey name" compact placeholder="Name, e.g. Work laptop" autoFocus value={passkeyName} onChangeText={setPasskeyName} maxLength={60} /></View><Button size="sm" title="Continue" accessibilityLabel="Add passkey" disabled={busy || !passkeyName.trim()} onPress={() => { const label = passkeyName.trim(); void run(async () => { const generation = recoveryGuard.current.begin(); const result = await addPasskey(label); setPasskeyName(null); if (recoveryGuard.current.accepts(generation)) setRecoveryCodes(result.recovery_codes ?? []) }, 'Passkey added.') }} /></>)}
           </SettingRow>
@@ -101,7 +114,7 @@ export function ProfilePanel() {
         </View>
         {me?.security.mfa_enrolled && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}><Icon name="shield" size={14} color={c.muted} /><Text style={mutedText(c.muted)}>{'Changes here ask you to confirm it’s you first.'}</Text></View>}
       </ProfileSection>
-      {!!me && <SecurityNotices userId={me.id} />}
+      {!!me && <SecurityNotices userId={me.id} refresh={noticesRevision} />}
       {canChangePassword && <ProfileSection title={jivo ? 'JIVO password' : 'Password'}>
         {jivo && <Text style={{ fontFamily: 'Inter_400Regular', color: c.muted, fontSize: 14, lineHeight: 20, marginBottom: 12 }}>The same password for every JIVO app. Changing it here changes it everywhere.</Text>}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
@@ -112,12 +125,15 @@ export function ProfilePanel() {
         </View>
       </ProfileSection>}
       <ProfileSection title="Signed-in devices" aside={<Button size="sm" variant="secondary" title="Sign out other devices" disabled={busy || others < 1} onPress={() => setConfirmation({ title: 'Sign out all your other devices?', action: profile.revokeOtherSessions })} />}>
-        <View style={{ marginTop: -12 }}>{devices.map((device, index) => <SettingRow key={device.id} icon="laptop" first={index === 0}
+        {devicesState.loading && !devices.length && <View style={{ paddingVertical: 12 }}><ActivityIndicator color={c.brand} accessibilityLabel="Loading devices" /></View>}
+        {!!devicesState.error && <ErrorState message={devicesState.error} onRetry={retryDevices} />}
+        <View style={{ marginTop: -12 }}>{devices.map((device, index) => <SettingRow key={device.id} icon={/Android|iOS|iPhone|iPad/.test(device.device_label) ? 'smartphone' : 'laptop'} first={index === 0}
           title={<View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}><Text style={{ color: c.text, fontFamily: 'Inter_500Medium', fontWeight: '500', fontSize: 14, lineHeight: 20 }}>{device.device_label || 'Device'}</Text>{device.current && <Pill tone="brand">This device</Pill>}</View>}
           detail={`${AUTH_LABEL[device.auth_method] ?? 'Password'} · active ${formatRelative(device.last_seen_at)} · signed in ${formatDate(device.created_at)}${device.ip_last ? ` · ${device.ip_last}` : ''}`}>
           {!device.current && <IconTextButton icon="logout" size="sm" variant="ghost" title="Sign out" accessibilityLabel={`Sign out ${device.device_label}`} disabled={busy} onPress={() => setConfirmation({ title: `Sign out "${device.device_label}"?`, action: () => profile.revokeSession(device.id) })} />}
         </SettingRow>)}</View>
       </ProfileSection>
+      {!!me?.capabilities.includes('JM_ACCESS') && <ProfileSection title="Privacy"><BlockedContacts /></ProfileSection>}
       <ProfileImages key={`bg:${me?.id}`} part="background" />
       <ProfileSection title="This device">
         <View style={{ marginTop: -12 }}><SettingRow first icon="logout" tone={c.danger} title="Sign out" detail="Sign out of JM on this device.">

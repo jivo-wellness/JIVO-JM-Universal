@@ -6,6 +6,7 @@ import { firstEmoji, MORE_REACTIONS, QUICK_REACTIONS } from '../modules/messenge
 import { Icon, type IconName } from './Icon'
 import { randomUUID } from 'expo-crypto'
 import * as chat from '../modules/messenger/api'
+import { canStar } from '../modules/messenger/stickers/model'
 import { errorMessage, origin } from '../core/api/client'
 import { useCursor } from '../shared/useCursor'
 import { Button, Card, Field, Label, glass, useColors } from '../ui'
@@ -66,7 +67,7 @@ type Hover = { hovered?: boolean; pressed: boolean }
  * picker), a quoted preview, then Reply, Copy, Forward, Edit, Info and Delete rows. Accessibility labels keep the
  * existing test hooks ("Message information", "Edit message", "Forward message", "Close actions", ...).
  */
-export function MessageActionSheet({ message: m, own = true, busy = false, canReply = true, editDisabled = false, onClose, onReact, onUnreact, onReply, onForward, onEdit, onInfo, onExport, onDelete }: {
+export function MessageActionSheet({ message: m, own = true, busy = false, canReply = true, editDisabled = false, onClose, onReact, onUnreact, onReply, onForward, onEdit, onInfo, onExport, onDelete, onStar }: {
   message: chat.Message | null
   busy?: boolean
   canReply?: boolean
@@ -82,6 +83,8 @@ export function MessageActionSheet({ message: m, own = true, busy = false, canRe
   onInfo: () => void
   onExport: (attachment: chat.Attachment) => void
   onDelete: (scope: 'me' | 'everyone') => void
+  /** U-028: keep an image or sticker of this message in the sticker panel's Favourites (this device). */
+  onStar?: (attachment: chat.Attachment) => void
 }) {
   const c = useColors(); const { width, height } = useWindowDimensions(); const inset = useSafeAreaInsets()
   const [more, setMore] = useState(false)
@@ -91,6 +94,7 @@ export function MessageActionSheet({ message: m, own = true, busy = false, canRe
   const close = () => { if (busy) return; setPicking(false); setConfirm(null); onClose() }
   const mine = m.reactions.find(r => r.me)?.emoji
   const react = (e: string) => { setPicking(false); if (e === mine) onUnreact(); else onReact(e) }
+  const starrable = !onStar || m.deleted ? undefined : m.attachments.find(canStar)
   const exportable = m.deleted ? [] : m.attachments.filter(a => (a.kind === 'image' || a.kind === 'audio' || a.kind === 'video') && a.status === 'ready')
   const row = (icon: IconName, title: string, label: string, onPress: () => void, opts: { danger?: boolean; disabled?: boolean } = {}) => <Pressable key={label} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !!opts.disabled || busy }} disabled={opts.disabled || busy} onPress={onPress}
     style={({ hovered, pressed }: Hover) => [{ flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 20, paddingVertical: 12, opacity: opts.disabled ? 0.5 : 1, backgroundColor: pressed ? (c.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)') : hovered ? (c.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)') : 'transparent' }, opts.disabled ? null : pointer]}>
@@ -132,6 +136,7 @@ export function MessageActionSheet({ message: m, own = true, busy = false, canRe
               {m.can.reply && canReply && row('cornerUpLeft', 'Reply', 'Reply', onReply)}
               {!m.deleted && !!m.body && row('copy', 'Copy', 'Copy', () => { void setStringAsync(m.body).catch(() => {}); close() })}
               {m.can.forward && row('forward', 'Forward', 'Forward message', onForward)}
+              {starrable && onStar && row('sticker', 'Add to stickers', 'Add to stickers', () => onStar(starrable))}
               {exportable.map(a => row('download', `Save ${a.name}`, `Export attachment ${a.name}`, () => onExport(a)))}
               {m.can.edit && row('pencil', 'Edit', 'Edit message', onEdit, { disabled: editDisabled })}
               {own && row('info', 'Info', 'Message information', onInfo)}

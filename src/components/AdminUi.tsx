@@ -14,8 +14,8 @@ const pointer = (off = false): ViewStyle => (web ? ({ cursor: off ? 'not-allowed
 export type Tone = 'success' | 'warning' | 'danger' | 'info' | 'neutral' | 'brand'
 export function toneColors(c: Colors, tone: Tone) {
   return {
-    success: { bg: c.successSoft, fg: c.success }, warning: { bg: c.warningSoft, fg: c.warning }, danger: { bg: c.dangerSoft, fg: c.danger },
-    info: { bg: c.infoSoft, fg: c.info }, neutral: { bg: c.neutral, fg: c.muted }, brand: { bg: c.successSoft, fg: c.brand },
+    success: { bg: c.successSoft, fg: c.softText }, warning: { bg: c.warningSoft, fg: c.warning }, danger: { bg: c.dangerSoft, fg: c.danger },
+    info: { bg: c.infoSoft, fg: c.info }, neutral: { bg: c.neutral, fg: c.muted }, brand: { bg: c.successSoft, fg: c.softText },
   }[tone]
 }
 

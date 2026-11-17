@@ -3,6 +3,8 @@ export interface TransportOptions {
   origin: string; native: boolean
   csrf: (url: string) => Promise<string | undefined>
   lost: () => void
+  /** Native only: the app's own User-Agent, so the server can name this device (deviceName.ts). */
+  userAgent?: string
 }
 export function normalizeOrigin(value: string): string {
   if (!value) return ''
@@ -13,7 +15,8 @@ export function normalizeOrigin(value: string): string {
   return url.origin
 }
 export type StepUpHandler = (scope: string, methods: string[], signal?: AbortSignal) => Promise<boolean>
-type RetryConfig = InternalAxiosRequestConfig & { _stepUpRetried?: boolean; _sessionEpoch?: number }
+/** `stepUpPrompt: false` lets a caller that runs its own verification receive step_up_required instead of the global prompt. */
+type RetryConfig = InternalAxiosRequestConfig & { _stepUpRetried?: boolean; _sessionEpoch?: number; stepUpPrompt?: boolean }
 export function createTransport(options: TransportOptions) {
   const origin = normalizeOrigin(options.origin)
   const api = create({ baseURL: `${origin}/api/jm`, timeout: 20000, withCredentials: true,
@@ -25,6 +28,7 @@ export function createTransport(options: TransportOptions) {
     if (!origin) throw new Error('Configure EXPO_PUBLIC_API_ORIGIN with an approved test server before signing in.')
     if (config.baseURL === '/api/jp') config.baseURL = `${origin}/api/jp`
     if (config.baseURL !== `${origin}/api/jm` && config.baseURL !== `${origin}/api/jp`) throw new Error('API request outside the configured JM/JP origin was blocked.')
+    if (options.native && options.userAgent) config.headers.set('User-Agent', options.userAgent)
     if (!config.url?.startsWith('/') || config.url.startsWith('//') || config.url.includes('\\') || config.url.split('/').some(s => s === '..' || /%2e|%2f|%5c/i.test(s))) throw new Error('Invalid API path.')
     if (!['GET', 'HEAD', 'OPTIONS'].includes((config.method ?? 'get').toUpperCase())) {
       const csrf = await options.csrf(`${origin}/api/jm/`)
@@ -55,7 +59,7 @@ export function createTransport(options: TransportOptions) {
     const url = config?.url ?? ''
     if (error.response?.status === 401 && config?._sessionEpoch === sessionEpoch && !url.startsWith('/auth/login')) options.lost()
     if (error.response?.status === 403 && body?.code === 'step_up_required' && handler && config && config._sessionEpoch === sessionEpoch &&
-      !config.signal?.aborted && !config._stepUpRetried && !url.startsWith('/auth/step-up')) {
+      !config.signal?.aborted && !config._stepUpRetried && config.stepUpPrompt !== false && !url.startsWith('/auth/step-up')) {
       if (await handler(body.scope ?? 'security_settings', body.methods ?? [], config.signal as AbortSignal | undefined) && !config.signal?.aborted && config._sessionEpoch === sessionEpoch) {
         return api.request({ ...config, _stepUpRetried: true } as RetryConfig)
       }
@@ -73,9 +77,19 @@ export function errorMessage(error: unknown): string {
       const [key, value] = Object.entries(data.errors)[0] ?? []
       if (key) return `${key.replaceAll('_', ' ')}: ${Array.isArray(value) ? value.join(' ') : String(value)}`
     }
-    return typeof data?.detail === 'string' ? data.detail : error.response ? `Request failed (${error.response.status}). Please retry.` : 'Cannot reach JM. Check your connection.'
+    if (typeof data?.detail === 'string') return data.detail
+    // Reference core/api/client.ts errorMessage: the same sentences as the web app.
+    const status = error.response?.status
+    if (!status) return 'Cannot reach JM. Check your connection and try again.'
+    if (status >= 500) return 'Something went wrong on our side. Try again in a moment.'
+    if (status === 413) return 'This is too large to send.'
+    if (status === 429) return 'Too many attempts. Wait a minute and try again.'
+    if (status === 401) return 'Your session has ended. Sign in again.'
+    if (status === 403) return 'You do not have permission to do this.'
+    if (status === 404) return 'This was not found. It may have been removed.'
+    return 'This request could not be completed. Try again.'
   }
-  return error instanceof Error ? error.message : 'Something went wrong. Please retry.'
+  return error instanceof Error && error.message ? error.message : 'Something went wrong. Try again.'
 }
 
 

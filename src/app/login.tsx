@@ -37,7 +37,7 @@ export default function Login() {
         setPassword('')
         if (result.status === 'mfa_required') {
           setToken(result.mfa_token); setMethods(result.methods); setUseRecovery(!result.methods.includes('passkey') || !passkeysSupported())
-          if (!result.methods.includes('recovery_code') && !passkeysSupported()) setError('This account requires a passkey. Native passkey integration needs platform association; verification cannot be skipped.')
+          if (!result.methods.includes('recovery_code') && !passkeysSupported()) setError('This account needs a passkey, and this device cannot use one. Sign in on a device with your passkey, or ask an administrator for help.')
         }
       }
     } catch (e) { setError(errorMessage(e)) } finally { setBusy(false) }
@@ -79,7 +79,8 @@ export default function Login() {
           {!!(error || sessionError) && <Text accessibilityRole="alert" style={{ color: c.danger, backgroundColor: c.dangerSoft, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.control, fontSize: 14, lineHeight: 20, fontFamily: 'Inter_400Regular' }}>{error || sessionError}</Text>}
           <Button loading={busy} style={{ minHeight: 48, marginTop: 4 }} title={busy ? 'Signing in…' : 'Sign in'} onPress={() => void submit()} disabled={blocked || !email.trim() || !password} />
         </View>
-        {passkeysSupported() && offerPasskey && <>
+        {/* Password first: passwordless passkey sign-in stays on the web for now; the native app gets it later (U-029). */}
+        {Platform.OS === 'web' && passkeysSupported() && offerPasskey && <>
           <View style={{ marginVertical: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}><View style={{ flex: 1, height: 1, backgroundColor: c.border }} /><Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 16, color: c.muted }}>or</Text><View style={{ flex: 1, height: 1, backgroundColor: c.border }} /></View>
           <IconTextButton variant="secondary" icon="fingerprint" title="Sign in with a passkey" onPress={() => void passkey()} disabled={blocked} />
         </>}

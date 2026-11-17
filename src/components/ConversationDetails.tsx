@@ -8,7 +8,8 @@ import { mediaUrl } from '../modules/messenger/media/url'
 import { errorMessage, origin } from '../core/api/client'
 import { useCursor } from '../shared/useCursor'
 import { useResource } from '../shared/useResource'
-import { Button, Card, Field, Label, useColors } from '../ui'
+import { Button, Card, ErrorState, Field, Label, useColors } from '../ui'
+import { useReconnectRetry } from '../shared/useReconnectRetry'
 import { ConversationInfoFrame } from './ConversationInfoFrame'
 import { SharedMedia } from './SharedMedia'
 import { ChatAvatar } from './ChatAvatar'
@@ -30,7 +31,7 @@ type Confirm = { at: string; title: string; label?: string; action: () => Promis
 
 function Badge({ children, tone, icon }: { children: string; tone: 'warning' | 'info' | 'success' | 'neutral'; icon?: 'crown' | 'shield' }) {
   const c = useColors()
-  const colors = { warning: [c.dark ? '#3d2f12' : '#fef3c7', c.dark ? '#fcd34d' : '#92400e'], info: [c.dark ? '#1e3a5f' : '#dbeafe', c.dark ? '#93c5fd' : '#1e40af'], success: [c.soft, c.primary], neutral: [c.neutral, c.muted] }[tone]
+  const colors = { warning: [c.dark ? '#3d2f12' : '#fef3c7', c.dark ? '#fcd34d' : '#92400e'], info: [c.dark ? '#1e3a5f' : '#dbeafe', c.dark ? '#93c5fd' : '#1e40af'], success: [c.soft, c.softText], neutral: [c.neutral, c.muted] }[tone]
   return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors[0], paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 }}>{icon && <Icon name={icon} size={12} color={colors[1]} />}<Text style={{ color: colors[1], fontFamily: 'Inter_500Medium', fontSize: 12, lineHeight: 16 }}>{children}</Text></View>
 }
 
@@ -90,17 +91,19 @@ export function MessagingPermissions({ detail, members, onSaved }: { detail: cha
 /** Peer profile for a direct chat: the same profile layout, with this chat's Media / Docs / Links. */
 function DirectProfile({ detail, shared, onClose }: { detail: chat.ConversationDetail; shared: boolean; onClose: () => void }) {
   const peer = detail.peer?.id ?? null; const [busy, setBusy] = useState(false); const [error, setError] = useState('')
-  const c = useColors(); const load = useCallback(() => peer ? chat.getPerson(peer) : Promise.resolve(null), [peer]); const resource = useResource(load)
+  const c = useColors(); const load = useCallback(() => peer ? chat.getPerson(peer) : Promise.resolve(null), [peer]); const resource = useResource(load, { keep: true })
+  useReconnectRetry(!!resource.error, resource.refresh)
   if (!peer) return shared ? <SharedMedia key={`shared:${detail.id}`} conversation={detail.id} /> : null
-  return <>{resource.loading && <ActivityIndicator />}{!!resource.error && <><Label>{errorMessage(resource.error)}</Label><Button title="Retry profile" onPress={resource.refresh} /></>}
-    {resource.value && <PersonProfileView profile={resource.value} conversation={shared ? detail.id : null} busy={busy} onMessage={() => {
+  return <>{resource.loading && !resource.value && <ActivityIndicator />}{!!resource.error && <ErrorState message={errorMessage(resource.error)} onRetry={resource.refresh} />}
+    {resource.value && <PersonProfileView profile={resource.value} conversation={shared ? detail.id : null} busy={busy} onBlockChanged={resource.refresh} onMessage={() => {
       setBusy(true); setError(''); void chat.openDirect(resource.value!.id).then(direct => { onClose(); if (direct.id !== detail.id) router.push(`/messenger?conversation=${direct.id}`) }).catch(e => setError(errorMessage(e))).finally(() => setBusy(false))
     }} />}{!!error && <Text accessibilityRole="alert" style={{ color: c.danger, fontSize: 14 }}>{error}</Text>}</>
 }
 
 export function ConversationDetails({ conversation, initialDetail, onUpdated, onClose, onChanged, onLeave, page = false }: { page?: boolean; conversation: string; initialDetail?: chat.ConversationDetail; onUpdated?: (detail: chat.ConversationDetail) => void; onClose: () => void; onChanged: () => void; onLeave: () => void; onClear: () => void }) {
-  const c = useColors(); const load = useCallback(async () => { const detail = await chat.getConversation(conversation); return { detail, members: detail.kind === 'group' ? await chat.listMembers(conversation) : [] } }, [conversation]); const resource = useResource(load)
+  const c = useColors(); const load = useCallback(async () => { const detail = await chat.getConversation(conversation); return { detail, members: detail.kind === 'group' ? await chat.listMembers(conversation) : [] } }, [conversation]); const resource = useResource(load, { keep: true })
   const refreshDetails = resource.refresh
+  useReconnectRetry(!!resource.error, refreshDetails)
   useFocusEffect(useCallback(() => { if (page) refreshDetails() }, [page, refreshDetails]))
   const [view, setView] = useState<'info' | 'add'>('info')
   const [query, setQuery] = useState(''); const [selected, setSelected] = useState<string[]>([]); const [recent, setRecent] = useState(false)
@@ -117,7 +120,8 @@ export function ConversationDetails({ conversation, initialDetail, onUpdated, on
   const members = memberWindow(rows, term, shown)
   const confirmCard = (at: string) => confirm?.at === at && <Card style={{ padding: 12, gap: 8 }}><Label>{confirm.title}</Label><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}><Button title={confirm.label ?? 'Confirm'} accessibilityLabel="Confirm conversation change" disabled={busy} onPress={() => void run(confirm.action)} /><Button title="Cancel" variant="secondary" accessibilityLabel="Cancel conversation change" disabled={busy} onPress={() => setConfirm(null)} /></View></Card>
   const back = (title: string) => <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><IconButton name="back" label="Back to group info" disabled={busy} onPress={() => { setView('info'); setSelected([]) }} /><Label large>{title}</Label></View>
-  const status = <>{resource.loading && !detail && <ActivityIndicator />}{!!(error || resource.error || people.error) && <Text accessibilityRole="alert" style={{ color: c.danger }}>{error || (resource.error ? errorMessage(resource.error) : people.error)}</Text>}</>
+  // Reference DataState: a failed load (weak connection) gets Try again and also retries when JM is reachable again.
+  const status = <>{resource.loading && !detail && <ActivityIndicator />}{!!resource.error && !error && <ErrorState message={errorMessage(resource.error)} onRetry={refreshDetails} />}{!!(error || (!resource.error && people.error)) && <Text accessibilityRole="alert" style={{ color: c.danger }}>{error || people.error}</Text>}</>
 
   if (detail && group && view === 'add' && detail.can.manage_members) return <ConversationInfoFrame page={page} title="Add members" visible onClose={() => { if (!busy) { setView('info'); setSelected([]) } }}>{!page && back('Add members')}{status}
     <Field label="Find group members" value={query} onChangeText={setQuery} />

@@ -10,6 +10,8 @@ import { errorMessage } from '../core/api/client'
 import { Button, glass, useColors } from '../ui'
 import { Icon, type IconName } from './Icon'
 import { Sheet } from './Sheet'
+import { BlockContactSheet } from './BlockContact'
+import { blockCopy, type BlockTarget } from '../modules/messenger/blocking'
 
 const web = Platform.OS === 'web'
 const pointer = (web ? { cursor: 'pointer' } : {}) as object
@@ -116,6 +118,8 @@ export function ChatListActions({ chat: item, onClose, onChanged, onDeleted, onE
   const ask = (what: Confirm) => { setTarget(item); setConfirm(what); onClose() }
   const muted = item ? isMuted(item.muted_until) : false
   const title = (x: chat.ConversationItem | null) => x?.title || x?.peer?.name || ''
+  // Personal "Block contact" (BE-108) for direct chats with someone else; not the administrator "Block messaging".
+  const [blocking, setBlocking] = useState<BlockTarget | null>(null)
   return <>
     <ListSheet visible={item !== null} onClose={onClose} label="Chat options">
       {item && <>
@@ -127,10 +131,12 @@ export function ChatListActions({ chat: item, onClose, onChanged, onDeleted, onE
           <SheetRow icon="bellOff" label="Mute always" onPress={() => void run(() => chat.updateSettings(item.id, { muted_until: 'forever' }))} />
         </>)}
         <SheetRow icon={item.archived_at ? 'archiveRestore' : 'archive'} label={item.archived_at ? 'Unarchive' : 'Archive'} onPress={() => void run(() => chat.updateSettings(item.id, { archived: !item.archived_at }))} />
+        {item.kind === 'direct' && !self && !!item.peer && <SheetRow icon="ban" label={blockCopy.menu(!!item.blocked_by_me)} danger={!item.blocked_by_me} onPress={() => { const peer = item.peer!; onClose(); setBlocking({ id: peer.id, name: title(item), blocked: !!item.blocked_by_me }) }} />}
         <SheetRow icon="eraser" label="Clear chat" danger onPress={() => ask('clear')} />
         {item.kind === 'group' && !item.left ? <SheetRow icon="logout" label="Exit group" danger onPress={() => ask('leave')} /> : <SheetRow icon="trash2" label="Delete chat" danger onPress={() => ask('delete')} />}
       </>}
     </ListSheet>
+    <BlockContactSheet target={blocking} onClose={() => setBlocking(null)} onDone={() => { setBlocking(null); onChanged() }} />
     <ConfirmSheet visible={confirm === 'clear'} onClose={() => setConfirm(null)} title={`Clear the chat with ${title(target)}?`} body="Messages so far are hidden for you only. Others still see them." confirmLabel="Clear chat" onConfirm={() => { setConfirm(null); if (target) void run(() => chat.clearChat(target.id)) }} />
     <ConfirmSheet visible={confirm === 'delete'} onClose={() => setConfirm(null)} title={`Delete the chat with ${title(target)}?`} body="Its messages are cleared for you and it leaves your list (it is archived). It comes back if a new message arrives. Others still see the conversation." confirmLabel="Delete chat" onConfirm={() => { setConfirm(null); if (target) void run(async () => { await chat.clearChat(target.id); await chat.updateSettings(target.id, { archived: true }); onDeleted(target.id) }) }} />
     <ConfirmSheet visible={confirm === 'leave'} onClose={() => setConfirm(null)} title={`Exit “${title(target)}”?`} body="You stop receiving its messages. You can still read what was sent while you were a member." confirmLabel="Exit group" onConfirm={() => { setConfirm(null); if (target) void run(() => chat.leaveConversation(target.id)) }} />

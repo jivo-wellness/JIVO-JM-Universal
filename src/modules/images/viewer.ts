@@ -20,3 +20,13 @@ export class ImageZoom {
     return this.zoom(scale, width, height, this.start.x + to.x - from.x, this.start.y + to.y - from.y)
   }
 }
+
+/** A horizontal swipe of more than 60px (and more sideways than up/down) moves to the next (left) or previous (right) item. */
+export function swipeStep(dx: number, dy: number): -1 | 0 | 1 {
+  if (Math.abs(dx) <= 60 || Math.abs(dx) <= Math.abs(dy)) return 0
+  return dx < 0 ? 1 : -1
+}
+/** How far the picture follows the finger while swiping: fully, or a third (rubber band) where there is nothing more. */
+export function swipeOffset(dx: number, hasPrevious: boolean, hasNext: boolean): number {
+  return (dx < 0 && !hasNext) || (dx > 0 && !hasPrevious) ? dx / 3 : dx
+}

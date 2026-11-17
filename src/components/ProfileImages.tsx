@@ -34,8 +34,9 @@ export function ProfileImages({ part = 'photo' }: { part?: 'photo' | 'background
  const editor=editing&&file&&<PhotoEditor asset={file.asset} onClose={()=>setEditing(false)} onApply={asset=>{try{validateProfileImage(asset,file.purpose)}catch(e){void Promise.resolve(asset.dispose?.()).catch(()=>setError('Temporary edited image cleanup failed.'));setError(errorMessage(e));return}if(selection.accept(selection.begin(),asset)){setFile({...file,asset});setEditing(false)}}}/>
  if(part==='photo')return <View style={{gap:8}}>
   <View style={{flexDirection:'row',flexWrap:'wrap',alignItems:'center',gap:16}}>
-   <Pressable accessibilityRole="button" accessibilityLabel="Change photo" disabled={busy} onPress={()=>void pick('avatar')} style={{borderRadius:44,...(Platform.OS==='web'?{cursor:'pointer'} as object:{})}}>
-    {avatar?<Image accessibilityLabel="Current profile photo" source={{uri:avatar}} style={{width:88,height:88,borderRadius:44}}/>:<ChatAvatar name={me?.name??''} seed={me?.id} size={88}/>}
+   <Pressable accessibilityRole="button" accessibilityLabel="Change photo" disabled={busy} onPress={()=>void pick('avatar')} style={{width:88,height:88,flexShrink:0,borderRadius:44,...(Platform.OS==='web'?{cursor:'pointer'} as object:{})}}>
+    {/* Reference Avatar size 88: a fixed 88px circle, the photo cover-fitted over the initials (no jump while it loads). */}
+    <View accessibilityLabel={avatar?'Current profile photo':undefined}><ChatAvatar name={me?.name??''} seed={me?.id} uri={avatar} size={88}/></View>
    </Pressable>
    <View style={{gap:8,flexShrink:1}}>
     <View style={{flexDirection:'row',flexWrap:'wrap',gap:8}}><IconTextButton icon="camera" size="sm" variant="secondary" title={avatar?'Change photo':'Add photo'} accessibilityLabel="Choose profile photo" disabled={busy} onPress={()=>void pick('avatar')}/>{!!me?.avatar_url&&<IconTextButton icon="trash2" size="sm" variant="ghost" title="Remove" accessibilityLabel="Remove profile photo" disabled={busy} onPress={()=>setReview('remove-photo')}/>}</View>
@@ -47,7 +48,7 @@ export function ProfileImages({ part = 'photo' }: { part?: 'photo' | 'background
  const valid=/^#[0-9a-f]{6}$/i.test(color)
  return <ProfileSection title="Chat background"><View style={{gap:12}}>
   <Text style={{...mutedText(c.muted),fontSize:14,lineHeight:20}}>This changes the background for everyone.</Text>
-  {image&&<Image accessibilityLabel="Current chat background" source={{uri:image}} style={{width:'100%',height:120,borderRadius:radius.control}}/>}
+  {image&&<View style={{width:'100%',height:120,borderRadius:radius.control,overflow:'hidden',backgroundColor:c.panel,borderWidth:1,borderColor:c.border}}><Image accessibilityLabel="Current chat background" source={{uri:image}} resizeMode="cover" style={{width:'100%',height:'100%'}}/></View>}
   <View style={{flexDirection:'row',alignItems:'flex-end',gap:12,flexWrap:'wrap'}}><View style={{width:160}}><Field label="Chat background color" value={color} onChangeText={setColor} maxLength={7}/></View><View style={{width:40,height:40,borderRadius:radius.control,borderWidth:1,borderColor:c.border,backgroundColor:valid?color:undefined}}/><Button size="sm" variant="secondary" title="Use this color" accessibilityLabel="Review background color" disabled={busy||!valid} onPress={()=>setReview('color')}/></View>
   <View style={{flexDirection:'row',flexWrap:'wrap',gap:8}}><Button size="sm" variant="secondary" title="Choose image" accessibilityLabel="Choose chat background image" disabled={busy} onPress={()=>void pick('background')}/><Button size="sm" variant="ghost" title="Restore default" accessibilityLabel="Restore default chat background" disabled={busy} onPress={()=>setReview('default')}/>{!!appearance.value?.image_url&&<Button size="sm" variant="ghost" title="Remove image" accessibilityLabel="Remove saved background image" disabled={busy} onPress={()=>setReview('remove-background')}/>}</View>
   <Text style={mutedText(c.muted)}>Background images: up to 8 MB.</Text>

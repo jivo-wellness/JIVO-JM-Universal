@@ -47,7 +47,16 @@ export class HistoryController {
     let freshDetail: ConversationDetail | undefined
     const cacheGeneration = this.deps.cache?.generation?.()
     try {
-      const results = await Promise.allSettled([this.deps.detail(id), this.deps.read(id, around ? { around } : undefined)])
+      const requests = Promise.allSettled([this.deps.detail(id), this.deps.read(id, around ? { around } : undefined)])
+      // U-022: a recently opened chat shows its last messages from this device at once while the server answers.
+      // Not for a jump to a message (`around`): the cached window may not contain it.
+      if (!around && this.deps.cache) {
+        const early = await this.deps.cache.get(id).catch(() => null)
+        if (early && generation === this.generation && this.state.loading && !this.state.window.messages.length) {
+          this.publish({ ...this.state, detail: early.detail, window: early.window, cached: true, latestJump: this.state.latestJump + 1 })
+        }
+      }
+      const results = await requests
       if (generation !== this.generation) return
       if (results[0].status === 'fulfilled') { freshDetail = results[0].value; this.cacheGeneration = cacheGeneration }
       if (freshDetail?.locked) this.deps.cache?.remove(id)
@@ -63,7 +72,11 @@ export class HistoryController {
       const cached = isAxiosError(error) && !isCancel(error) && !error.response ? await this.deps.cache?.get(id) : null
       if (generation !== this.generation) return
       if (cached) this.publish({ ...this.state, detail: freshDetail ?? cached.detail, window: { ...cached.window, messages: cached.window.messages.filter(message => message.seq >= (freshDetail?.visible_from_seq ?? cached.window.visibleFrom)) }, loading: false, cached: true, error: 'Offline: showing recently synchronized messages.' })
-      else this.fail(error)
+      else {
+        // Anything but "no connection" (refusal, cancellation, server error) takes back the early cached view.
+        if (this.state.cached) this.publish({ ...this.state, detail: null, window: window.emptyWindow, cached: false })
+        this.fail(error)
+      }
     }
     finally { if (generation === this.generation) this.drain() }
   }

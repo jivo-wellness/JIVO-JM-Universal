@@ -9,12 +9,14 @@ export interface HistoryCache {
   remove(id: string): void
   generation?(): number
 }
-export interface CacheStorage { read(): Promise<string | null>; write(value: string): Promise<void>; clear(): Promise<void> }
+/** Owner-keyed storage. `clear(keep)` removes every account's data except `keep`'s (none when omitted). */
+export interface CacheStorage { read(owner: string): Promise<string | null>; write(owner: string, value: string): Promise<void>; clear(keep?: string): Promise<void> }
 interface Saved { version: 1; owner: string; expires: number; items: ConversationItem[]; histories: Record<string, CachedHistory> }
-const MAX_AGE = 30 * 60_000
-const MAX_CHATS = 10
-const MAX_MESSAGES = 40
-const MAX_CHARACTERS = 200_000
+// Start-up cache (U-022): kept until the session ends, at most two weeks, in app-private files.
+const MAX_AGE = 14 * 24 * 60 * 60_000
+const MAX_CHATS = 20
+const MAX_MESSAGES = 50
+const MAX_CHARACTERS = 1_500_000
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 const locked = (item: ConversationItem) => Boolean((item as ConversationItem & { locked_at?: string | null; locked?: boolean; is_locked?: boolean }).locked_at || (item as ConversationItem & { locked?: boolean }).locked || (item as ConversationItem & { is_locked?: boolean }).is_locked)
 const visible = (message: Message, now: number) => {
@@ -22,15 +24,25 @@ const visible = (message: Message, now: number) => {
   return !expires || (Number.isFinite(Date.parse(expires)) && Date.parse(expires) > now)
 }
 
-/** Small recent-history cache, not an offline authentication credential. */
+/** Last chat list and recent history for an instant start; not an offline authentication credential. */
 export class ConversationCache implements HistoryCache {
   private owner: string | null = null
   private epoch = 0
   private data: Saved | null = null
   private lockedIds = new Set<string>()
   private revision = 0
+  /**
+   * Set by RESYNC (the socket was away, lock changes may have been missed) until the next server list confirms the
+   * cache. Meanwhile pre-resync writes are refused and cached histories are not handed out, but the list rows stay:
+   * screens keep showing the same rows until they revalidate, and wiping them made every reconnect blank the chat
+   * list on its next mount (a visible reload) and the next start-up empty.
+   */
+  private unconfirmed = false
+  private fresh = new Set<string>()
   generation = () => this.revision
   private ready: Promise<void> = Promise.resolve()
+  /** The bound account's file is still being read. */
+  private pending = false
   private writes: Promise<unknown> = Promise.resolve()
   private timer: ReturnType<typeof setTimeout> | null = null
   constructor(private storage: CacheStorage, private now: () => number = Date.now) {}
@@ -43,11 +55,17 @@ export class ConversationCache implements HistoryCache {
       this.timer = null
       void this.serial(async () => {
         if (epoch !== this.epoch || !this.data) return
-        await this.storage.write(JSON.stringify(this.data))
+        await this.storage.write(this.data.owner, JSON.stringify(this.data))
       }).catch(() => {}) // Caching is optional; it must never interrupt a live send.
     }, 500)
   }
   bind(owner: string | null, expiresAt?: string | null, preserve = false): Promise<void> {
+    // Binding the same account again while its file is still being read (a profile refresh at start-up) must not
+    // restart the read: apply the new expiry once it has loaded.
+    if (owner !== null && owner === this.owner && this.pending) {
+      const epoch = this.epoch
+      return this.ready.then(() => { if (epoch === this.epoch && expiresAt) return this.bind(owner, expiresAt) })
+    }
     if (owner !== null && owner === this.owner && this.valid()) {
       if (expiresAt) {
         const expiry = Date.parse(expiresAt)
@@ -57,24 +75,26 @@ export class ConversationCache implements HistoryCache {
       return this.ready
     }
     const epoch = ++this.epoch; this.revision++
-    this.cancel(); this.owner = owner; this.data = null; this.lockedIds.clear()
+    this.cancel(); this.owner = owner; this.data = null; this.lockedIds.clear(); this.unconfirmed = false; this.fresh.clear()
+    this.pending = owner !== null
     this.ready = this.serial(async () => {
       if (!owner) { if (!preserve) await this.storage.clear(); return }
       const sessionExpiry = expiresAt ? Date.parse(expiresAt) : this.now() + MAX_AGE
       if (!Number.isFinite(sessionExpiry) || sessionExpiry <= this.now()) { await this.storage.clear(); return }
       let saved: Saved | null = null
       try {
-        const raw = await this.storage.read()
+        const raw = await this.storage.read(owner)
         if (raw && raw.length <= MAX_CHARACTERS) {
           const parsed = JSON.parse(raw) as Saved
           if (parsed.version === 1 && parsed.owner === owner && parsed.expires > this.now() && Array.isArray(parsed.items) && parsed.histories && typeof parsed.histories === 'object' && !Array.isArray(parsed.histories)) saved = parsed
         }
       } catch { /* A damaged cache is discarded; never prevent authentication. */ }
       if (epoch !== this.epoch) return
-      if (!saved) await this.storage.clear()
+      // Another account's cache never survives binding this one (account switch).
+      await this.storage.clear(saved ? owner : undefined)
       this.data = saved ?? { version: 1, owner, expires: Math.min(sessionExpiry, this.now() + MAX_AGE), items: [], histories: {} }
       this.data.expires = Math.min(this.data.expires, sessionExpiry, this.now() + MAX_AGE)
-    }).catch(() => { if (epoch === this.epoch) this.data = null })
+    }).catch(() => { if (epoch === this.epoch) this.data = null }).finally(() => { if (epoch === this.epoch) this.pending = false })
     return this.ready
   }
   private valid() {
@@ -86,7 +106,7 @@ export class ConversationCache implements HistoryCache {
   }
   async get(id: string): Promise<CachedHistory | null> {
     await this.ready
-    if (!this.valid() || this.lockedIds.has(id)) return null
+    if (!this.valid() || this.lockedIds.has(id) || (this.unconfirmed && !this.fresh.has(id))) return null
     const value = Object.hasOwn(this.data!.histories, id) ? this.data!.histories[id] : null
     if (!value || !value.detail || value.detail.id !== id || locked(value.detail) || value.detail.left || !Array.isArray(value.window?.messages) || !Number.isFinite(value.window.visibleFrom)) return null
     const result = clone(value)
@@ -104,6 +124,7 @@ export class ConversationCache implements HistoryCache {
     copy.window.hasMoreBefore ||= messages.length > MAX_MESSAGES
     delete this.data!.histories[id]
     this.data!.histories[id] = copy
+    if (this.unconfirmed) this.fresh.add(id)
     this.trim(); this.persist()
   }
   remove(id: string): void {
@@ -118,9 +139,7 @@ export class ConversationCache implements HistoryCache {
     if (!this.owner) return
     if (frame.type === 'RESYNC') {
       this.revision++
-      const epoch = this.epoch
-      const clear = () => { if (epoch === this.epoch && this.data) { this.data.histories = {}; this.data.items = []; this.persist() } }
-      if (this.data) clear(); else void this.ready.then(clear)
+      this.unconfirmed = true; this.fresh.clear()
       return
     }
     if (frame.type !== 'CONVERSATION_SETTINGS') return
@@ -132,16 +151,29 @@ export class ConversationCache implements HistoryCache {
   }
   async list(): Promise<ConversationItem[]> {
     await this.ready
+    return this.peek() ?? []
+  }
+  /** The cached list rows when the account's file has already been read (synchronous: the first frame), else null. */
+  peek(): ConversationItem[] | null {
+    if (this.pending || !this.owner) return null
     return this.valid() ? clone(this.data!.items.filter(item => !locked(item) && !item.left && !this.lockedIds.has(item.id))) : []
   }
+  /** True once `owner`'s file has been read (or found missing/damaged), so start-up can stop waiting for it. */
+  loaded(owner: string): boolean { return this.owner === owner && !this.pending }
   rememberList(items: ConversationItem[], generation = this.revision): void {
     if (generation !== this.revision) return
     if (!this.data && this.owner) { const epoch = this.epoch; void this.ready.then(() => { if (epoch === this.epoch && this.data) this.rememberList(items, generation) }); return }
     if (!this.valid()) return
-    // Offline list previews deliberately omit message text; disappearing/deleted
-    // preview expiry metadata is not part of the current list API contract.
-    this.data!.items = clone(items.filter(item => !locked(item) && !item.left && !this.lockedIds.has(item.id)).slice(0, 100).map(item => ({ ...item, last_message: null })))
+    // Previews are kept so the list looks the same at start-up, except in chats with disappearing messages:
+    // the list API has no preview expiry, so those previews are never written to the device.
+    this.data!.items = clone(items.filter(item => !locked(item) && !item.left && !this.lockedIds.has(item.id)).slice(0, 100).map(item => item.disappearing_seconds ? { ...item, last_message: null } : item))
     for (const item of items) if (locked(item) || item.left) delete this.data!.histories[item.id]
+    if (this.unconfirmed) {
+      // First server list after a RESYNC: keep only histories of chats it still lists unlocked (or re-read since).
+      const listed = new Set(this.data!.items.map(item => item.id))
+      for (const id of Object.keys(this.data!.histories)) if (!listed.has(id) && !this.fresh.has(id)) delete this.data!.histories[id]
+      this.unconfirmed = false; this.fresh.clear()
+    }
     this.trim(); this.persist()
   }
   private trim() {
@@ -153,6 +185,6 @@ export class ConversationCache implements HistoryCache {
   async flush(): Promise<void> {
     this.cancel(); await this.ready
     const epoch = this.epoch
-    await this.serial(async () => { if (epoch === this.epoch && this.valid()) await this.storage.write(JSON.stringify(this.data)) })
+    await this.serial(async () => { if (epoch === this.epoch && this.valid()) await this.storage.write(this.data!.owner, JSON.stringify(this.data)) })
   }
 }

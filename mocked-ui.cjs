@@ -6,7 +6,7 @@ const base = 'http://localhost:' + Number(fs.readFileSync('.local-ui-port', 'utf
 const person = { id: 'peer', name: 'Example Colleague', email: 'colleague@example.invalid', avatar_url: null, company: 'Example Company', is_active: true }
 const me = { id: 'me', name: 'Example Tester', display_name: 'Example Tester', full_name: 'Example Tester', email: 'tester@example.invalid', phone: '+91 98100 00000', bio: '', avatar_url: null,
   can_create_groups: true, pending_email: null, pending_email_requested_at: null, employee_code: null, date_joined: '2026-01-01', last_seen_privacy: 'everyone',
-  companies: [], capabilities: ['JM_ACCESS', 'JM_SEND_MESSAGE', 'JM_SEND_FILE', 'JM_CREATE_GROUP', 'JM_SEND_ALERT', 'JP_ACCESS', 'JP_MANAGE_VAULT', 'JP_REQUEST_EMERGENCY', 'ADMIN_USERS'], groups: [],
+  companies: [], capabilities: ['JM_ACCESS', 'JM_SEND_MESSAGE', 'JM_SEND_FILE', 'JM_CREATE_GROUP', 'JM_SEND_ALERT', 'JM_POLL_CREATE', 'JM_EVENT_CREATE', 'JM_LOCATION_SHARE', 'JM_CONTACT_SHARE', 'JP_ACCESS', 'JP_MANAGE_VAULT', 'JP_REQUEST_EMERGENCY', 'ADMIN_USERS'], groups: [],
   session: { id: 'current-device', expires_at: '2027-01-01', auth_method: 'password' },
   security: { mfa_enrolled: true, mfa_required: false, two_step_enforced: false, session_verified: true, passkeys: [{id:'synthetic-key',name:'Synthetic key'}], recovery_codes_left: 0, locked_capabilities: [], locked_out: false } }
 function message(id, seq, body, own = false) {
@@ -303,7 +303,10 @@ async function run() {
       await page.getByRole('button', { name: 'Attach', exact: true }).click()
       await page.getByRole('menuitem', { name: 'Poll', exact: true }).click()
       await page.getByLabel('Poll question', { exact: true }).fill('Mock poll question')
-      await page.getByLabel('Poll choices (one per line)', { exact: true }).fill('First choice\nSecond choice')
+      // Reference PollDialog: one field per option; a new empty row appears when the last one is used.
+      await page.getByLabel('Option 1', { exact: true }).fill('First choice')
+      await page.getByLabel('Option 2', { exact: true }).fill('Second choice')
+      await page.getByLabel('Option 3', { exact: true }).waitFor()
       await page.getByRole('button', { name: 'Send poll', exact: true }).click()
       await page.getByText('Mock poll question', { exact: true }).waitFor()
       await page.getByRole('button', { name: 'View votes (0)', exact: true }).click()
@@ -441,7 +444,7 @@ async function run() {
         await page.getByLabel('Display name').fill('Updated Example Tester')
       await page.getByRole('button', { name: 'Save profile', exact: true }).click()
       await page.getByRole('button', { name: 'Verify password', exact: true }).waitFor()
-      await page.getByLabel('Current password', { exact: true }).last().fill('mock-only-password')
+      await page.getByLabel('Your password', { exact: true }).last().fill('mock-only-password')
       await page.getByRole('button', { name: 'Verify password', exact: true }).click()
       await page.getByText('Profile updated.', { exact: true }).waitFor()
       assert.equal(me.display_name, 'Updated Example Tester')
@@ -461,8 +464,8 @@ async function run() {
       await page.evaluate(()=>window.credentialMock.mode='success');await page.getByRole('button',{name:'Turn on app lock',exact:true}).click();await page.getByRole('button',{name:'Turn off app lock',exact:true}).waitFor();
       await page.reload();await page.getByText('JM is locked',{exact:true}).waitFor();await page.getByLabel('App unlock password',{exact:true}).fill('mock-only-password');await page.getByRole('button',{name:'Unlock JM',exact:true}).click();await page.getByText('JM is locked',{exact:true}).waitFor({state:'hidden'});await page.getByRole('link',{name:/^Profile: /}).last().click();await expandProfile();await page.getByRole('button',{name:'Turn off app lock',exact:true}).waitFor();await page.getByRole('button',{name:'Turn off app lock',exact:true}).click();await page.getByRole('button',{name:'Turn on app lock',exact:true}).waitFor();
 
-      for(const mode of ['success','cancel','pending']){verified=false;stepMethods=['passkey','password'];const calls=await page.evaluate(()=>window.credentialMock.calls);await page.evaluate(mode=>window.credentialMock.mode=mode,mode);await page.getByRole('button',{name:'Save profile',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.credentialMock.calls)).toBe(calls+1);if(mode==='pending'){await page.getByRole('button',{name:'Use your password instead',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.credentialMock.cancelled)).toBeGreaterThan(0)}if(mode!=='success'){await page.getByRole('button',{name:'Verify password',exact:true}).waitFor();await expect(page.getByText('The passkey could not be used.',{exact:true})).toHaveCount(0);await page.locator('input[aria-label="Current password"]:visible').last().fill('mock-only-password');await page.getByRole('button',{name:'Verify password',exact:true}).click()}await expect.poll(()=>verified).toBe(true);await expect(page.getByText('Profile updated.',{exact:true})).toBeVisible()}
-      verified=false;stepMethods=['passkey'];await page.evaluate(()=>window.credentialMock.mode='cancel');await page.getByRole('button',{name:'Save profile',exact:true}).click();await page.getByRole('button',{name:'Verify with passkey',exact:true}).waitFor();await expect(page.getByRole('button',{name:'Verify password',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'Cancel',exact:true}).click();stepMethods=['password'];verified=true;
+      for(const mode of ['success','cancel','pending']){verified=false;stepMethods=['passkey','password'];const calls=await page.evaluate(()=>window.credentialMock.calls);await page.evaluate(mode=>window.credentialMock.mode=mode,mode);await page.getByRole('button',{name:'Save profile',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.credentialMock.calls)).toBe(calls+1);if(mode==='pending'){await page.getByRole('button',{name:'Use your password instead',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.credentialMock.cancelled)).toBeGreaterThan(0)}if(mode!=='success'){await page.getByRole('button',{name:'Verify password',exact:true}).waitFor();await expect(page.getByText('The passkey could not be used.',{exact:true})).toHaveCount(0);await page.locator('input[aria-label="Your password"]:visible').last().fill('mock-only-password');await page.getByRole('button',{name:'Verify password',exact:true}).click()}await expect.poll(()=>verified).toBe(true);await expect(page.getByText('Profile updated.',{exact:true})).toBeVisible()}
+      verified=false;stepMethods=['passkey'];await page.evaluate(()=>window.credentialMock.mode='cancel');await page.getByRole('button',{name:'Save profile',exact:true}).click();await page.getByRole('button',{name:'Use a passkey',exact:true}).waitFor();await expect(page.getByRole('button',{name:'Verify password',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'Cancel',exact:true}).click();stepMethods=['password'];verified=true;
 
       await page.getByRole('button', { name: 'Regenerate recovery codes', exact: true }).click()
       await page.getByRole('button', { name: 'Confirm', exact: true }).click()
@@ -472,7 +475,7 @@ async function run() {
       await page.getByText('Action completed.', { exact: true }).waitFor()
       await expect(page.getByText('MOCK_DELAYED_RECOVERY', { exact: true })).toHaveCount(0)
       await page.getByRole('link', { name: 'Passwords', exact: true }).click()
-      await page.getByRole('button',{name:'Verify password',exact:true}).waitFor();assert.equal(unlockCalls,1);await page.getByRole('button',{name:'Cancel',exact:true}).click();await expect(page.getByRole('button',{name:'Open vault Example vault',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'Unlock',exact:true}).click();await page.locator('input[aria-label="Current password"]:visible').last().fill('mock-only-password');await page.getByRole('button',{name:'Verify password',exact:true}).click();await expect.poll(()=>vaultVerified).toBe(true);
+      await page.getByRole('button',{name:'Verify password',exact:true}).waitFor();assert.equal(unlockCalls,1);await page.getByRole('button',{name:'Cancel',exact:true}).click();await expect(page.getByRole('button',{name:'Open vault Example vault',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'Unlock',exact:true}).click();await page.locator('input[aria-label="Your password"]:visible').last().fill('mock-only-password');await page.getByRole('button',{name:'Verify password',exact:true}).click();await expect.poll(()=>vaultVerified).toBe(true);
 
       await page.getByRole('button', { name: 'Open vault Example vault', exact: true }).click()
       // The folder tool is a "New folder" sheet (Name + Create, VaultTools FolderManager since 2e4a6d4); it closes on success.
@@ -576,7 +579,7 @@ async function run() {
       assert.equal(mutations.filter(m=>m.path==='/api/jp/files/file/download/').length,attempts+1)
       assert.equal(await page.evaluate(()=>window.vaultBlobURLs),0)
       await confirmFile.click()
-      await page.getByRole('dialog').getByLabel('Current password',{exact:true}).fill('MOCK_VERIFY')
+      await page.getByRole('dialog').getByLabel('Your password',{exact:true}).fill('MOCK_VERIFY')
       const download=page.waitForEvent('download');await page.getByRole('button',{name:'Verify password',exact:true}).click();assert.equal((await download).suggestedFilename(),'renamed.pem')
       assert.equal(mutations.filter(m=>m.path==='/api/jp/files/file/download/').length,attempts+3)
       for(const cancelMethod of ['button','blur']){

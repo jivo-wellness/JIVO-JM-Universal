@@ -120,3 +120,65 @@ it('does not overflow a timer for a long-lived session and clears preserved stor
  const { controller, deps } = setup({ me: response, boundary }); await controller.restore(); await vi.advanceTimersByTimeAsync(60_000); expect(controller.snapshot().status).toBe('ready')
  response.mockRejectedValue('401'); await controller.restore(); await Promise.resolve(); expect(controller.snapshot().status).toBe('anonymous'); expect(boundary).toHaveBeenLastCalledWith(false); expect(deps.clear).toHaveBeenCalledOnce(); expect(vi.getTimerCount()).toBe(0)
 })
+
+describe('cached profile start-up (U-022)', () => {
+  const cachedMe = { id: 'test-user', name: 'Cached User', capabilities: [] } as unknown as Me
+  const memory = (initial: Me | null = cachedMe) => {
+    let value = initial
+    return { read: vi.fn(async () => value), write: vi.fn(async (next: Me) => { value = next }), clear: vi.fn(async () => { value = null }), get: () => value }
+  }
+  it('opens with the cached profile at once, then confirms it with the server (stale, then refresh)', async () => {
+    let release!: (value: Me) => void
+    const cache = memory()
+    const { controller } = setup({ cache, me: () => new Promise(r => { release = r }) })
+    const restoring = controller.restore()
+    await vi.waitFor(() => expect(controller.snapshot()).toEqual({ status: 'ready', me: cachedMe, stale: true }))
+    release(me); await restoring
+    expect(controller.snapshot()).toEqual({ status: 'ready', me }); expect(cache.get()).toEqual(me)
+  })
+  it('keeps the cached screens while the server cannot be reached, and retries without a new boundary', async () => {
+    const boundary = vi.fn(); const cache = memory()
+    const meCall = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(me)
+    const { controller } = setup({ cache, boundary, me: meCall })
+    await controller.restore()
+    expect(controller.snapshot()).toMatchObject({ status: 'ready', me: cachedMe, stale: true, error: 'Error: offline' })
+    const boundaries = boundary.mock.calls.length
+    await controller.restore()
+    expect(boundary).toHaveBeenCalledTimes(boundaries); expect(controller.snapshot()).toEqual({ status: 'ready', me })
+  })
+  it('wipes the cached profile when the server says the session has ended', async () => {
+    const cache = memory(); const boundary = vi.fn()
+    const { controller } = setup({ cache, boundary, me: async () => { throw '401' } })
+    await controller.restore()
+    expect(controller.snapshot()).toEqual({ status: 'anonymous', me: null }); expect(cache.get()).toBeNull()
+    expect(boundary).toHaveBeenLastCalledWith(false)
+  })
+  it('wipes the cached profile on sign-out', async () => {
+    const cache = memory(null)
+    const { controller } = setup({ cache }); await controller.restore(); expect(cache.get()).toEqual(me)
+    await controller.logout(); expect(cache.get()).toBeNull()
+  })
+  it('ends the cached account before adopting a different one from the server', async () => {
+    const other = { id: 'other-user', name: 'Other', capabilities: [] } as unknown as Me
+    const cache = memory(); const boundary = vi.fn()
+    const { controller } = setup({ cache, boundary, me: async () => other })
+    await controller.restore()
+    expect(boundary).toHaveBeenLastCalledWith(false); expect(controller.snapshot()).toEqual({ status: 'ready', me: other }); expect(cache.get()).toEqual(other)
+  })
+  it('marks the local cache read as `reading`, and a server wait without a cached profile as plain loading (U-031)', async () => {
+    let release!: (value: Me | null) => void
+    const cache = { ...memory(null), read: vi.fn(() => new Promise<Me | null>(r => { release = r })) }
+    const { controller } = setup({ cache, me: () => new Promise<Me>(() => {}) })
+    void controller.restore()
+    expect(controller.snapshot()).toEqual({ status: 'loading', me: null, reading: true })
+    release(null)
+    await vi.waitFor(() => expect(controller.snapshot()).toEqual({ status: 'loading', me: null }))
+  })
+  it('ignores a cached profile whose session has already expired', async () => {
+    const expired = { ...cachedMe, session: { id: 's', expires_at: '2000-01-01T00:00:00Z', auth_method: 'password' } } as Me
+    const cache = memory(expired)
+    const { controller } = setup({ cache, me: async () => { throw new Error('offline') } })
+    await controller.restore()
+    expect(controller.snapshot().status).toBe('unreachable'); expect(cache.clear).toHaveBeenCalled()
+  })
+})

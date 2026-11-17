@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Pressable, Text, View, useWindowDimensions } from 'react-native'
 import { randomUUID } from 'expo-crypto'
 import { placeAt, searchPlaces, sendLocation, type Message, type Place } from '../modules/messenger/api'
 import { currentLocation } from '../modules/messenger/location/device'
@@ -7,9 +7,9 @@ import { DEFAULT_CENTER, validLocation, type LatLng, type PickedLocation } from 
 import { errorMessage } from '../core/api/client'
 import { useResource } from '../shared/useResource'
 import { accuracyLabel, approximateFix, distanceLabel } from '../modules/messenger/location/format'
-import { Button, Field, Label, useColors } from '../ui'
+import { Button, Field, useColors } from '../ui'
 import { Icon, type IconName } from './Icon'
-import { Sheet } from './Sheet'
+import { AttachPage } from './attach/AttachPage'
 import { LocationMap } from './LocationMap'
 
 export function LocationPicker({ onClose, onSend, mode = 'send' }: { onClose: () => void; onSend: (place: PickedLocation) => Promise<void> | void; mode?: 'send' | 'pick' }) {
@@ -60,7 +60,7 @@ export function LocationPicker({ onClose, onSend, mode = 'send' }: { onClose: ()
   const reviewPoint = (point: PickedLocation) => { touched.current = { name: false, address: false }; setName(point.name); setAddress(point.address); setError(''); setResolving(!point.address); setReview(point) }
   const moved = useCallback((point: LatLng) => { centered.current = true; setCenter(point); setPin({ ...point, accuracy: null, name: '', address: '' }) }, [])
   const choose = (place: Place) => { centered.current = true; setCenter(place); setPin({ ...place, accuracy: null }); setTerm(''); setQuery('') }
-  const verb = mode === 'pick' ? 'Use' : 'Send'; const c = useColors()
+  const verb = mode === 'pick' ? 'Use' : 'Send'; const c = useColors(); const { height: screen } = useWindowDimensions()
   const final = review ? { ...review, name: name.trim(), address: address.trim() } : null
   async function submit() {
     if (busy || !final || !validLocation(final)) return
@@ -69,39 +69,37 @@ export function LocationPicker({ onClose, onSend, mode = 'send' }: { onClose: ()
     catch (e) { if (alive.current) setError(errorMessage(e)) }
     finally { if (alive.current) setBusy(false) }
   }
-  return <Sheet visible onClose={() => { if (!busy) onClose() }}>
-    <Label large>{review ? 'Location details' : mode === 'pick' ? 'Choose location' : 'Send location'}</Label>
-    {review ? <>
-      <LocationMap center={review} initialZoom={17} height={170} />
+  const verbing = verb === 'Use' ? 'Using' : 'Sending'
+  if (review) return <AttachPage title="Location details" onBack={() => { if (!busy) setReview(null) }} backLabel="Back to the map" backDisabled={busy}
+    footer={<View style={{ flexDirection: 'row', gap: 8, justifyContent: 'flex-end' }}><Button title="Back" variant="secondary" disabled={busy} onPress={() => setReview(null)} /><View style={{ flex: 1 }}><Button title={busy ? `${verbing}…` : verb} loading={busy} disabled={!final || !validLocation(final)} onPress={() => void submit()} /></View></View>}>
+    <View style={{ padding: 16, gap: 12 }}>
+      <LocationMap center={review} initialZoom={17} height={Math.round(Math.min(220, screen * 0.28))} />
       <Text style={{ fontFamily: 'Inter_400Regular', color: c.muted, fontSize: 12, fontVariant: ['tabular-nums'] }}>{review.latitude.toFixed(6)}, {review.longitude.toFixed(6)}{review.accuracy !== null ? ` · ${accuracyLabel(review.accuracy)}` : ''}</Text>
-      <Field label="Name (optional)" placeholder="e.g. Home, Office, Plot 14" value={name} onChangeText={value => { touched.current.name = true; setName(value) }} maxLength={120} editable={!busy} />
-      <Field label="Address" value={address} onChangeText={value => { touched.current.address = true; setAddress(value) }} maxLength={300} multiline editable={!busy} />
-      <Text style={{ fontFamily: 'Inter_400Regular', color: c.muted, fontSize: 12 }}>{resolving ? 'Finding the address…' : 'Add the house or plot number, block and floor if needed.'}</Text>
-      <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'flex-end' }}><Button title="Back" variant="secondary" disabled={busy} onPress={() => setReview(null)} /><Button title={busy ? `${verb === 'Use' ? 'Using' : 'Sending'}…` : verb} disabled={busy || !final || !validLocation(final)} onPress={() => void submit()} /></View>
-    </> : <>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: c.border, borderRadius: 999, backgroundColor: c.panel, paddingLeft: 16, paddingRight: 4, minHeight: 48 }}>
-        <Icon name="search" size={16} />
-        <TextInput selectionColor={c.brand} cursorColor={c.brand} underlineColorAndroid="transparent" value={term} onChangeText={setTerm} onSubmitEditing={() => setQuery(term.trim())} returnKeyType="search" maxLength={200} placeholder="Search for a place or address" placeholderTextColor={c.muted} accessibilityLabel="Search for a place" style={{ flex: 1, minWidth: 0, fontFamily: 'Inter_400Regular', fontSize: 16, color: c.text, paddingHorizontal: 0, paddingVertical: 12, includeFontPadding: false }} />
-        {!!term && <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => { setTerm(''); setQuery('') }} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontFamily: 'Inter_400Regular', color: c.muted, fontSize: 18, lineHeight: 20 }}>×</Text></Pressable>}
-      </View>
-      {term.trim().length >= 2 ? <View accessibilityLabel="Places found">
-        {term.trim() !== query ? <Status>Searching when you stop typing · Enter to search now</Status> : searching ? <View style={{ paddingVertical: 12 }}><ActivityIndicator accessibilityLabel="Searching places" color={c.brand} /></View> : <>
-          {!!searchError && <Status danger>Search is unavailable right now.</Status>}
-          {!results.length && !searchError && <Status>No places found. Move the map to the place and send the pin instead.</Status>}
-          {results.map((place, index) => <Row key={`${place.latitude}:${place.longitude}:${index}`} first={index === 0} icon="pin" iconColor="#ef4444" title={place.name} subtitle={place.address} trailing={distanceLabel(place.distance_km)} onPress={() => choose(place)} />)}
-        </>}
-      </View> : <>
-        <LocationMap center={center} interactive onMove={moved} height={300} overlay={<Pressable accessibilityRole="button" accessibilityLabel={locating ? 'Finding your location' : 'Go to my location'} disabled={locating} onPress={() => { centered.current = false; void locate() }} style={{ position: 'absolute', right: 12, bottom: 12, width: 40, height: 40, borderRadius: 20, backgroundColor: c.panel, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 3 }}>{locating ? <ActivityIndicator color={c.brand} /> : <Icon name="home" size={20} color={c.brand} />}</Pressable>} />
-        <View>
-          <Row first icon="send" iconColor={c.brand} iconBg={c.soft} title={`${verb} your current location`} subtitle={fix ? accuracyLabel(fix.accuracy) : fixError || 'Finding your location…'} warning={approximateFix(fix?.accuracy) ? 'Approximate: move the map to the exact spot, or search.' : ''} disabled={!fix || busy} onPress={() => { if (fix) reviewPoint(fix) }} />
-          {pin && <Row icon="pin" iconColor="#ef4444" iconBg={c.dangerSoft} title={`${verb} this location`} subtitle={[pin.name, pin.address].filter(Boolean).join(' · ') || `${pin.latitude.toFixed(5)}, ${pin.longitude.toFixed(5)}`} disabled={busy} onPress={() => reviewPoint(pin)} />}
-        </View>
-        <Text style={{ fontFamily: 'Inter_400Regular', color: c.muted, fontSize: 12 }}>Move the map to place the pin exactly, or search. Maps © OpenStreetMap contributors.</Text>
+      <Field label="Name (optional)" placeholder="e.g. Jivo Wellness, Mayapuri office" value={name} onChangeText={value => { touched.current.name = true; setName(value) }} maxLength={120} editable={!busy} />
+      <Field label="Address" placeholder="e.g. A-35/1, Block A, Mayapuri Industrial Area Phase I, New Delhi, 110064" value={address} onChangeText={value => { touched.current.address = true; setAddress(value) }} maxLength={300} multiline numberOfLines={3} editable={!busy} hint={resolving ? 'Finding the address…' : 'Add the house or plot number, block and floor if needed.'} />
+      {!!error && <Status danger>{error}</Status>}
+    </View>
+  </AttachPage>
+  return <AttachPage title={mode === 'pick' ? 'Choose location' : 'Send location'} onBack={() => { if (!busy) onClose() }} backLabel="Close location" backDisabled={busy}
+    search={{ value: term, onChangeText: value => { setTerm(value); if (!value) setQuery('') }, onSubmit: () => setQuery(term.trim()), placeholder: 'Search for a place or address', label: 'Search for a place' }}>
+    {term.trim().length >= 2 ? <View accessibilityLabel="Places found" style={{ paddingHorizontal: 12 }}>
+      {term.trim() !== query ? <Status>Searching when you stop typing · Enter to search now</Status> : searching ? <View style={{ paddingVertical: 16 }}><ActivityIndicator accessibilityLabel="Searching places" color={c.brand} /></View> : <>
+        {!!searchError && <Status danger>Search is unavailable right now.</Status>}
+        {!results.length && !searchError && <Status>No places found. Move the map to the place and send the pin instead.</Status>}
+        {results.map((place, index) => <Row key={`${place.latitude}:${place.longitude}:${index}`} first={index === 0} icon="mapPin" iconColor="#ef4444" title={place.name} subtitle={place.address} trailing={distanceLabel(place.distance_km)} onPress={() => choose(place)} />)}
       </>}
+    </View> : <>
+      <View style={{ paddingHorizontal: 12, paddingTop: 12 }}>
+        <LocationMap center={center} interactive onMove={moved} height={Math.round(Math.max(240, screen * 0.42))} overlay={<Pressable accessibilityRole="button" accessibilityLabel={locating ? 'Finding your location' : 'Go to my location'} disabled={locating} onPress={() => { centered.current = false; void locate() }} style={{ position: 'absolute', right: 12, bottom: 12, width: 44, height: 44, borderRadius: 22, backgroundColor: c.panel, alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.25)' }}>{locating ? <ActivityIndicator color={c.brand} /> : <Icon name="locateFixed" size={22} color={c.brand} />}</Pressable>} />
+      </View>
+      <View style={{ paddingHorizontal: 12 }}>
+        <Row first icon="navigation" iconColor={c.brand} iconBg={c.successSoft} title={`${verb} your current location`} subtitle={fix ? accuracyLabel(fix.accuracy) : fixError || 'Finding your location…'} warning={approximateFix(fix?.accuracy) ? 'Approximate: move the map to the exact spot, or search.' : ''} disabled={!fix || busy} onPress={() => { if (fix) reviewPoint(fix) }} />
+        {pin && <Row icon="mapPin" iconColor="#ef4444" iconBg={c.dangerSoft} title={`${verb} this location`} subtitle={[pin.name, pin.address].filter(Boolean).join(' · ') || `${pin.latitude.toFixed(5)}, ${pin.longitude.toFixed(5)}`} disabled={busy} onPress={() => reviewPoint(pin)} />}
+      </View>
+      <Text style={{ fontFamily: 'Inter_400Regular', color: c.muted, fontSize: 12, paddingHorizontal: 16, paddingTop: 8 }}>Move the map to place the pin exactly, or search. Maps © OpenStreetMap contributors.</Text>
     </>}
     {!!error && <Status danger>{error}</Status>}
-    <Button title="Close location" variant="ghost" disabled={busy} onPress={onClose} />
-  </Sheet>
+  </AttachPage>
 }
 
 function Status({ children, danger = false }: { children: ReactNode; danger?: boolean }) {

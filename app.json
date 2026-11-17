@@ -28,7 +28,17 @@
     "plugins": [
       "expo-router",
       "@preeternal/react-native-cookie-manager",
-      "expo-font",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./node_modules/@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf",
+            "./node_modules/@expo-google-fonts/inter/500Medium/Inter_500Medium.ttf",
+            "./node_modules/@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf",
+            "./node_modules/@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf"
+          ]
+        }
+      ],
       [
         "expo-video",
         {
@@ -103,6 +113,19 @@
         "expo-notifications",
         {
           "color": "#16a34a"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/brand/jm-mark.png",
+          "imageWidth": 120,
+          "resizeMode": "contain",
+          "backgroundColor": "#f6f8f6",
+          "dark": {
+            "image": "./assets/brand/jm-mark.png",
+            "backgroundColor": "#0c1210"
+          }
         }
       ]
     ],

@@ -10,7 +10,7 @@ import { useTheme } from '../core/theme/useTheme'
 import { ChatAvatar } from './ChatAvatar'
 import { ConfirmDialog } from './Sheet'
 import type { ReactNode } from 'react'
-import { ConnectionStatus } from './ConnectionStatus'
+import { ConnectionStatus, SessionUnreachable } from './ConnectionStatus'
 import { LiveAlertBanner, useLiveUpdates } from './LiveUpdates'
 import { Brand } from './Brand'
 import { Icon, type IconName } from './Icon'
@@ -25,7 +25,7 @@ import { useWaitingApprovals } from '../modules/approvals/useWaitingApprovals'
 import { APPROVALS_ACCESS, badgeText } from '../modules/approvals/model'
 const pointer = (Platform.OS === 'web' ? { cursor: 'pointer' } : {}) as ViewStyle
 export function Workspace({ children, preview = false }: { children: ReactNode; preview?: boolean }) {
-  const { me, logout, status, retry, error: sessionError } = useSession(); const c = useColors(); const { width } = useWindowDimensions()
+  const { me, logout, status, retry, reading } = useSession(); const c = useColors(); const { width } = useWindowDimensions()
   const pathname = usePathname()
   const params = useLocalSearchParams<Record<string, string | string[]>>()
   const [error, setError] = useState('')
@@ -40,8 +40,10 @@ export function Workspace({ children, preview = false }: { children: ReactNode; 
   const router = useRouter(); const theme = useTheme()
   const { summary } = useLiveUpdates()
   const approvalsBadge = badgeText(useWaitingApprovals(!preview && !!me && allows(me.capabilities ?? [], APPROVALS_ACCESS)))
+  // Reading the cached profile is local and under the splash (U-031): a plain background, never a spinner.
+  if (!preview && status === 'loading' && reading) return <View style={{ flex: 1, backgroundColor: c.bg }} />
   if (!preview && (status === 'loading' || status === 'signing-out')) return <SafeAreaView style={{ flex: 1, justifyContent: 'center', backgroundColor: c.bg }}><View style={{ alignItems: 'center' }}><Spinner label="Restoring session" /></View></SafeAreaView>
-  if (!preview && status === 'unreachable') return <SafeAreaView style={{ flex: 1, backgroundColor: c.bg }}><ConnectionStatus reconnecting error={sessionError || 'Cannot reach JM.'} onRetry={() => void retry()} /></SafeAreaView>
+  if (!preview && status === 'unreachable') return <SafeAreaView style={{ flex: 1, backgroundColor: c.bg }}>{/* Reference RequireSession sits outside the shell: plain canvas, no backdrop. */}<SessionUnreachable onRetry={() => void retry()} onSignOut={() => void logout().catch(() => undefined)} /></SafeAreaView>
   if (!me && !preview) {
     const query = new URLSearchParams()
     Object.entries(params).forEach(([key, value]) => { for (const item of Array.isArray(value) ? value : [value]) if (typeof item === 'string') query.append(key, item) })
@@ -110,7 +112,6 @@ export function Workspace({ children, preview = false }: { children: ReactNode; 
       {preview && <Link replace href="/login" style={{ color: c.primary }}>Back to sign in</Link>}
     </View>}
     {!!error && <Label>{error}</Label>}
-    {!preview && !pathname.startsWith('/messenger') && <ConnectionStatus />}
     {!preview && <LiveAlertBanner />}
     {preview && <Text style={{ padding: 10, color: c.muted }}>Layout preview • fictional content • no API requests</Text>}
     <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column' }}>
@@ -140,6 +141,8 @@ export function Workspace({ children, preview = false }: { children: ReactNode; 
       </View>
     </View>}
     <ConfirmDialog visible={confirmOut} onClose={() => setConfirmOut(false)} title="Sign out of JM?" body="You will need your password (and passkey, if you use one) to sign in again on this device." confirmLabel="Sign out" danger loading={signingOut} onConfirm={signOut} />
+    {/* Reference ConnectionBanner: fixed over the top of every page (the chat page reports its own network error). */}
+    {!preview && <ConnectionStatus />}
   </SafeAreaView></WorkspaceChrome.Provider>
 }
 

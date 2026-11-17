@@ -70,9 +70,10 @@ it('falls back to recent account-bound cache only for network failure', async ()
 it('does not expose cached messages after authorization failure or request cancellation', async () => {
  const { CanceledError } = await import('axios')
  for (const error of [{ response: { status: 403, data: { code: 'forbidden' } } }, new CanceledError('abandoned')]) {
-  const cache = { get: vi.fn(async () => null), put: vi.fn<HistoryCache['put']>(), remove: vi.fn() }
+  const saved = { detail: { id: 'c' } as ConversationDetail, window: { messages: [msg(1)], hasMoreBefore: false, hasMoreAfter: false, lastSeq: 1, visibleFrom: 1, receipts: { read_seq: 0, delivered_seq: 0 }, serverTime: null } }
+  const cache = { get: vi.fn(async () => saved), put: vi.fn<HistoryCache['put']>(), remove: vi.fn() }
   const c = new HistoryController({ detail: async () => { throw error }, read: async () => page([1]), message: String, cache })
-  await c.select('c'); expect(cache.get).not.toHaveBeenCalled(); expect(c.snapshot().window.messages).toEqual([])
+  await c.select('c'); expect(c.snapshot().window.messages).toEqual([]); expect(c.snapshot().cached).toBe(false)
  }
 })
 it('persists synchronized changes and invalidates the cache on lost access', async () => {
@@ -111,14 +112,32 @@ it('does not let a fast network error mask a concurrent authorization refusal', 
  const { AxiosError } = await import('axios')
  const cache = { get: vi.fn(async () => null), put: vi.fn<HistoryCache['put']>(), remove: vi.fn() }
  const c = new HistoryController({ detail: async () => { throw new AxiosError('offline') }, read: async () => { await Promise.resolve(); throw { response: { status: 403, data: { code: 'forbidden' } } } }, message: String, cache })
- await c.select('c'); expect(cache.get).not.toHaveBeenCalled(); expect(c.snapshot().accessLost).toBe(true)
+ await c.select('c'); expect(c.snapshot().window.messages).toEqual([]); expect(c.snapshot().accessLost).toBe(true)
 })
 
 it('does not hydrate an old unlocked cache when fresh detail is locked but history fails', async () => {
  const { AxiosError } = await import('axios')
- const cache = { get: vi.fn(async () => null), put: vi.fn<HistoryCache['put']>(), remove: vi.fn() }
+ const saved = { detail: { id: 'c' } as ConversationDetail, window: { messages: [msg(1)], hasMoreBefore: false, hasMoreAfter: false, lastSeq: 1, visibleFrom: 1, receipts: { read_seq: 0, delivered_seq: 0 }, serverTime: null } }
+ const cache = { get: vi.fn(async () => saved), put: vi.fn<HistoryCache['put']>(), remove: vi.fn() }
  const c = new HistoryController({ detail: async () => ({ id: 'c', locked: true }) as ConversationDetail, read: async () => { throw new AxiosError('offline') }, message: String, cache })
- await c.select('c'); expect(cache.get).not.toHaveBeenCalled(); expect(c.snapshot().locked).toBe(true)
+ await c.select('c'); expect(c.snapshot().locked).toBe(true); expect(c.snapshot().window.messages).toEqual([]); expect(cache.remove).toHaveBeenCalledWith('c')
+})
+it('shows cached history at once and replaces it with the server window (stale, then refresh)', async () => {
+ const saved = { detail: { id: 'c' } as ConversationDetail, window: { messages: [msg(1)], hasMoreBefore: false, hasMoreAfter: false, lastSeq: 1, visibleFrom: 1, receipts: { read_seq: 0, delivered_seq: 0 }, serverTime: null } }
+ const cache = { get: vi.fn(async () => saved), put: vi.fn<HistoryCache['put']>(), remove: vi.fn() }
+ let release!: (value: MessageWindow) => void
+ const c = new HistoryController({ detail: async () => ({ id: 'c' }) as ConversationDetail, read: () => new Promise(r => { release = r }), message: String, cache })
+ const opening = c.select('c')
+ await vi.waitFor(() => expect(c.snapshot().cached).toBe(true))
+ expect(c.snapshot().loading).toBe(true); expect(c.snapshot().window.messages.map(m => m.id)).toEqual(['m1']); expect(cache.put).not.toHaveBeenCalled()
+ release(page([1, 2])); await opening
+ expect(c.snapshot().cached).toBe(false); expect(c.snapshot().loading).toBe(false); expect(c.snapshot().window.messages.map(m => m.seq)).toEqual([1, 2])
+ expect(cache.put).toHaveBeenCalled()
+})
+it('does not use the cache when opening at a specific message', async () => {
+ const cache = { get: vi.fn(async () => null), put: vi.fn<HistoryCache['put']>(), remove: vi.fn() }
+ const c = new HistoryController({ detail: async () => ({ id: 'c' }) as ConversationDetail, read: async () => page([5]), message: String, cache })
+ await c.select('c', 5); expect(cache.get).not.toHaveBeenCalled()
 })
 
 it('opens locked history only with the verified ephemeral gate and never caches it', async () => {

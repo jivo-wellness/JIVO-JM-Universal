@@ -16,7 +16,10 @@ import { isEmptySystemNotice } from '../modules/messenger/conversationInfo'
 import { EventComposer } from './EventComposer'
 import { LocationComposer } from './LocationPicker'
 import { ChatComposer } from './ChatComposer'
-import { DeletedText, HistoryStart, MessageAttachments, MessageBubble, MessageDay, MessageMetaSpacer, SystemNotice } from './MessagePresentation'
+import { StickerBubble } from './StickerMessage'
+import { isStickerMessage } from '../modules/messenger/stickers/model'
+import { favouriteStickers } from '../modules/messenger/stickers/favourites'
+import { DeletedText, HistoryStart, MessageAttachments, MessageBubble, MessageDay, MessageMetaSpacer, SystemNotice, overlaysMeta } from './MessagePresentation'
 import { chatLock } from '../modules/messenger/chatLock'
 import { LockedChatsGate } from '../modules/messenger/components/LockedChatsGate'
 import { isAxiosError, isCancel } from 'axios'
@@ -29,7 +32,7 @@ import { firstLink, highlightParts, isMuted, listTime, sameDay, withMentionToken
 import { useConversationLive } from '../modules/messenger/useConversationLive'
 import { arrivalBehavior } from '../modules/messenger/reader'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native'
+import { ActivityIndicator, FlatList, Image, Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { randomUUID } from 'expo-crypto'
 import * as chat from '../modules/messenger/api'
@@ -37,15 +40,21 @@ import { statusFor } from '../modules/messenger/lib/window'
 import { HistoryController } from '../modules/messenger/history'
 import { useCursor } from '../shared/useCursor'
 import type { PickedFile } from '../modules/messenger/media/model'
-import { pickDocument } from '../modules/messenger/media/picker'
+import { pickDocuments, pickMedia } from '../modules/messenger/media/gallery'
+import { MAX_FILES, acceptFiles } from '../modules/messenger/media/selection'
+import { vcardFile } from '../modules/messenger/media/deviceContacts'
+import type { AttachSource } from './AttachmentPreview'
+import { PollPage } from './attach/PollPage'
+import { ContactPage } from './attach/ContactPage'
 import { useSession } from '../core/auth/Session'
 import { errorMessage, origin } from '../core/api/client'
 import { realtime } from '../core/realtime/socket'
 import { subscribeLifecycle } from '../core/realtime/lifecycle'
-import { Button, Card, EmptyState, Field, Label, glass, useColors } from '../ui'
+import { Button, Card, EmptyState, ErrorState, Field, Label, glass, useColors } from '../ui'
 import { chatListWidth, isWide, touchBox } from '../shared/shellLayout'
 import { actionFailure, OFFLINE_ACTION } from '../modules/messenger/offlineAction'
-import { CreatePoll, ForwardMessage, FullImage, MessageActionSheet, SearchMessages, ShareContact } from './MessageTools'
+import { ForwardMessage, MessageActionSheet, SearchMessages } from './MessageTools'
+import { ChatMediaViewer } from './ChatMediaViewer'
 import { MediaPlayback } from './MediaPlayback'
 import { ConversationDetails } from './ConversationDetails'
 import { ConversationPicker } from './ConversationPicker'
@@ -58,6 +67,9 @@ import { ChatAvatar } from './ChatAvatar'
 import { Icon, IconButton, type IconName } from './Icon'
 import { useLiveUpdates } from './LiveUpdates'
 import { ChatListActions, ConfirmSheet, useListTyping } from './ChatListActions'
+import { BlockContactSheet, BlockedBanner } from './BlockContact'
+import { blockCopy, type BlockTarget } from '../modules/messenger/blocking'
+const STARRED = 'Added to your stickers.'
 /** Reference ConversationList FILTERS; locked chats open from their own row, as in the reference. */
 const listFilters: { value: chat.ConversationFilter; label: string }[] = [{ value: 'all', label: 'All' }, { value: 'unread', label: 'Unread' }, { value: 'groups', label: 'Groups' }, { value: 'archived', label: 'Archived' }]
 const listPointer = (Platform.OS === 'web' ? { cursor: 'pointer' } : {}) as object
@@ -103,7 +115,7 @@ function UnreadSeparator() {
   const c = useColors(); const line = c.dark ? 'rgba(34,197,94,0.4)' : 'rgba(22,163,74,0.4)'
   return <View accessibilityRole={Platform.OS === 'web' ? ('separator' as never) : undefined} accessibilityLabel="Unread messages" style={{ marginVertical: 8, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
     <View style={{ flex: 1, height: 1, backgroundColor: line }} />
-    <Text style={{ borderRadius: 999, overflow: 'hidden', backgroundColor: c.successSoft, paddingHorizontal: 12, paddingVertical: 2, fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 12, lineHeight: 16, color: c.brand }}>Unread messages</Text>
+    <Text style={{ borderRadius: 999, overflow: 'hidden', backgroundColor: c.successSoft, paddingHorizontal: 12, paddingVertical: 2, fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 12, lineHeight: 16, color: c.softText }}>Unread messages</Text>
     <View style={{ flex: 1, height: 1, backgroundColor: line }} />
   </View>
 }
@@ -139,13 +151,15 @@ function ConversationRow({ item, selected, disabled, typing, onPress, onMenu }: 
 }
 
 const emptyMessages: chat.Message[] = []
+/** Reference useChat PAGE: one window of history (the server's default limit). */
+const OPEN_PAGE = 50
 
 export function Messenger({ preview = false, initialConversation, initialSeq }: { preview?: boolean; initialConversation?: chat.ConversationItem; initialSeq?: number }) {
   const appearance = useChatAppearance().value; const backgroundImage = appearance?.type === 'image' ? mediaUrl(appearance.image_url, origin) : null
   const c = useColors(); const { width, height } = useWindowDimensions(); const compact = height < 600 || width < 768; const { me } = useSession()
   const [selection, setSelected] = useState<chat.ConversationItem | null>(initialConversation ?? null)
   // Reference MessageList "Unread messages" separator: remembered from the row that was opened, before reading clears it.
-  const [unreadMark, setUnreadMark] = useState<{ id: string; seq: number } | null>(() => initialConversation && initialConversation.unread_count > 0 ? { id: initialConversation.id, seq: initialConversation.last_read_seq } : null)
+  const [unreadMark, setUnreadMark] = useState<{ id: string; seq: number; count: number } | null>(() => initialConversation && initialConversation.unread_count > 0 ? { id: initialConversation.id, seq: initialConversation.last_read_seq, count: initialConversation.unread_count } : null)
   const summary = useLiveUpdates().summary as { unread_conversations?: number; unread_groups?: number; unread_archived?: number }
   const chipCounts: Partial<Record<chat.ConversationFilter, number>> = { unread: summary.unread_conversations, groups: summary.unread_groups, archived: summary.unread_archived }
   const [query, setQuery] = useState(''); const [filter, setFilter] = useState<chat.ConversationFilter>('all'); const [lockedCount, setLockedCount] = useState(0)
@@ -153,7 +167,7 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
   const [person, setPerson] = useState<chat.PersonCard | null>(null); const [votes, setVotes] = useState<string | null>(null)
   const [caret, setCaret] = useState<Caret>({ start: body.length, end: body.length }); const [forcedCaret, setForcedCaret] = useState<Caret | undefined>()
   const mention = mentionAt(body, caret)
-  const [pendingFile, setPendingFile] = useState<{ conversation: string; file: PickedFile } | null>(null)
+  const [pendingFile, setPendingFile] = useState<{ conversation: string; files: PickedFile[]; source: AttachSource; notice: string } | null>(null)
   const pickingFile = useRef(false)
   const atlasEnabled = !!useAtlasStatus()?.enabled
   const [actions, setActions] = useState<chat.Message | null>(null)
@@ -164,6 +178,8 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
   const [exporting,setExporting]=useState<{conversation:string;message:string;attachment:string}|null>(null)
   const [media, setMedia] = useState<{ conversation: string; message: string; attachment: string } | null>(null)
   const [menu, setMenuMode] = useState<'options' | 'tools' | null>(null); const setMenu = (open: boolean) => setMenuMode(open ? 'tools' : null); const [choice, setChoice] = useState<'clear' | null>(null)
+  // Personal "Block contact" (BE-108) in direct chats; not the administrator "Block messaging".
+  const [blocking, setBlocking] = useState<BlockTarget | null>(null)
   const [tool, setTool] = useState<'search' | 'poll' | 'contact' | 'details' | 'event' | 'location' | null>(null); const [forwarding, setForwarding] = useState<chat.Message | null>(null); const [image, setImage] = useState<{ conversation: string; message: string; attachment: string } | null>(null)
   const [revision, setRevision] = useState(0); const [picker, setPicker] = useState(false)
   const [attachments, setAttachments] = useState<chat.Attachment[]>([])
@@ -187,14 +203,27 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
   const currentAttachment = (source: typeof media) => source && source.conversation === selection?.id && !historyState.accessLost ? messages.find(m => m.id === source.message && !m.deleted)?.attachments?.find(a => a.id === source.attachment && a.status === 'ready') : undefined
   const exportAttachment=currentAttachment(exporting);
   const mediaAttachment = currentAttachment(media); const imageAttachment = currentAttachment(image)
-  const gallery = messages.filter(message => !message.deleted).flatMap(message => message.attachments.filter(attachment => attachment.kind === 'image' && attachment.status === 'ready').map(attachment => ({ conversation: message.conversation, message: message.id, attachment: attachment.id })))
-  const imageIndex = gallery.findIndex(item => item.attachment === image?.attachment)
+  // Reference ChatView gallery: every photo (and here every video) of the loaded chat, oldest first, so the viewer goes left and right.
+  const gallery = useMemo(() => messages.filter(message => !message.deleted).flatMap(message => message.attachments.filter(attachment => (attachment.kind === 'image' || attachment.kind === 'video') && attachment.status === 'ready').map(attachment => ({ attachment, message: message.id, sender: message.sender?.id === me?.id ? 'You' : message.sender?.name || 'JM', createdAt: message.created_at }))), [messages, me?.id])
+  const imageIndex = gallery.findIndex(item => item.attachment.id === image?.attachment)
   useEffect(() => history.subscribe(() => {
     const state = history.snapshot()
     const retain = (source: typeof media) => source && source.conversation === state.id && !state.accessLost && state.window.messages.some(m => m.id === source.message && !m.deleted && m.attachments?.some(a => a.id === source.attachment && a.status === 'ready')) ? source : null
     setMedia(retain); setImage(retain)
     if (state.accessLost || state.locked) { if (state.id && me) conversationDrafts.write(me.id, state.id, ''); setAttachments([]); setTool(null); setActions(null); setForwarding(null); setReply(null); setEditing(null); setBody(''); setPerson(null); setVotes(null); setInfo(null); setExporting(null); setMenu(false) }
   }), [history, me])
+  // Synchronous when the start-up cache is already read (U-031): the list's first frame is the cached rows.
+  const cachedConversations = useCallback((): chat.ConversationItem[] | Promise<chat.ConversationItem[]> => {
+    if (preview || filter === 'locked') return []
+    const pick = (rows: chat.ConversationItem[]) => rows.filter(item =>
+      (filter === 'archived' ? !!item.archived_at : !item.archived_at) &&
+      (filter !== 'unread' || item.unread_count > 0) &&
+      (filter !== 'groups' || item.kind === 'group') &&
+      (filter !== 'direct' || item.kind === 'direct') &&
+      (item.title || item.peer?.name || '').toLowerCase().includes(query.toLowerCase()))
+    const rows = conversationCache.peek()
+    return rows ? pick(rows) : conversationCache.list().then(pick)
+  }, [preview, filter, query])
   const loadConversations = useCallback(async (cursor?: string | null) => {
     if (preview || filter === 'locked' && !lockState.unlocked) return { results: [], next_cursor: null }
     const cacheGeneration = conversationCache.generation()
@@ -204,18 +233,15 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
       return page
     } catch (e) {
       if (cursor || !isAxiosError(e) || e.response || isCancel(e)) throw e
-      const saved = await conversationCache.list()
+      const saved = await cachedConversations()
       if (!saved.length) throw e
-      return { results: saved.filter(item =>
-        (filter === 'archived' ? !!item.archived_at : !item.archived_at) &&
-        (filter !== 'unread' || item.unread_count > 0) &&
-        (filter !== 'groups' || item.kind === 'group') &&
-        (filter !== 'direct' || item.kind === 'direct') && filter !== 'locked' &&
-        (item.title || item.peer?.name || '').toLowerCase().includes(query.toLowerCase())), next_cursor: null }
+      return { results: saved, next_cursor: null }
     }
-  }, [preview, filter, query, lockState.unlocked])
-  const conversations = useCursor(loadConversations)
-  const { items, cursor, loading, refresh: refreshConversations } = conversations
+  }, [preview, filter, query, lockState.unlocked, cachedConversations])
+  // U-022: the last chat list on this device shows at once; the server's page replaces it when it arrives.
+  const conversations = useCursor(loadConversations, cachedConversations)
+  // Coming back to the list or a live event revalidates without blanking the rows already on screen.
+  const { items, cursor, loading, revalidate: refreshConversations } = conversations
   const typingIn = useListTyping(me?.id ?? '')
   const [rowMenu, setRowMenu] = useState<chat.ConversationItem | null>(null)
   // Reference ConversationList "Messages" section: server message search under the chat rows from two characters.
@@ -257,15 +283,21 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
     let timer: ReturnType<typeof setTimeout> | undefined
     const off = realtime.on('*', frame => {
       history.event(frame)
-      if (!/^(MESSAGE_|CONVERSATION_|MEMBER_|RESYNC)/.test(frame.type)) return
+      if (!/^(MESSAGE_|CONVERSATION_|MEMBER_|RESYNC|CONTACT_BLOCK_)/.test(frame.type)) return
       clearTimeout(timer); timer = setTimeout(refresh, 150)
     })
     return () => { off(); clearTimeout(timer) }
   }, [preview, refresh, history])
+  // Reference useChat open: more unread than one page (50) opens around the first unread message, which is then put
+  // at the top under the "Unread messages" line; otherwise the chat opens at its latest message.
+  const openUnread = useRef(unreadMark)
+  useEffect(() => { openUnread.current = unreadMark }, [unreadMark])
   useEffect(() => {
     if (preview) return
     const jump = jumpTo.current?.id === selectedId ? jumpTo.current?.seq : undefined; jumpTo.current = null
-    void history.select(selectedId ?? null, selectedId === initialConversation?.id ? initialSeq : jump)
+    const mark = openUnread.current
+    const unreadAround = mark && mark.id === selectedId && mark.count > OPEN_PAGE ? mark.seq + 1 : undefined
+    void history.select(selectedId ?? null, (selectedId === initialConversation?.id ? initialSeq : undefined) ?? jump ?? unreadAround)
     realtime.setFocusedConversation(selectedId ?? null)
     return () => { history.invalidate(); realtime.setFocusedConversation(null) }
   }, [selectedId, preview, history, initialConversation?.id, initialSeq])
@@ -291,15 +323,28 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
   const completedJump = useRef(0)
   const jumpAttempts = useRef(0); const jumpTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (jumpTimer.current) clearTimeout(jumpTimer.current) }, [])
-  const scrollRequested = useCallback(() => {
-    if (completedJump.current === historyState.latestJump || !listRef.current) return
-    const index = historyState.targetSeq === null ? -1 : messages.findIndex(m => m.seq === historyState.targetSeq)
+  // Opening a chat: the history stays invisible until it has been scrolled to its latest message (or the first unread),
+  // so the person never sees it paint at the top and jump. `shownFor` is the chat whose history has been placed.
+  const [shownFor, setShownFor] = useState<string | null>(null)
+  const [openedId, setOpenedId] = useState(selectedId)
+  if (openedId !== selectedId) { setOpenedId(selectedId); setShownFor(null) }
+  const placing = !!selectedId && shownFor !== selectedId && messages.length > 0 && historyMatchesSelection
+  const reveal = useCallback(() => { const id = selectedId ?? null; requestAnimationFrame(() => setShownFor(id)) }, [selectedId])
+  // Safety net: show it anyway if no layout pass arrives (an empty or failed window, a list that never measures).
+  useEffect(() => { if (!placing) return; const timer = setTimeout(reveal, 700); return () => clearTimeout(timer) }, [placing, reveal])
+  // While placing, only a measured layout (onContentSizeChange) positions the list: the effect could run while the
+  // skeleton or the previous chat's height is still the known content height.
+  const scrollRequested = useCallback((measured = false) => {
+    if (completedJump.current === historyState.latestJump || !listRef.current || (placing && !measured)) return
+    // First message at or after the target: a jump to a reply/search hit finds its own seq; the first unread may be a later seq.
+    const index = historyState.targetSeq === null ? -1 : messages.findIndex(m => m.seq >= historyState.targetSeq!)
     jumpAttempts.current = 0
     if (index >= 0) listRef.current.scrollToIndex({ index, animated: false, viewPosition: 0, viewOffset: 8 })
     else listRef.current.scrollToOffset({ offset: contentHeight.current, animated: false })
     completedJump.current = historyState.latestJump
-  }, [historyState.latestJump, historyState.targetSeq, messages])
-  useEffect(() => { const timer = setTimeout(scrollRequested, 0); return () => clearTimeout(timer) }, [scrollRequested])
+    if (messages.length) reveal()
+  }, [historyState.latestJump, historyState.targetSeq, messages, reveal, placing])
+  useEffect(() => { const timer = setTimeout(() => scrollRequested(), 0); return () => clearTimeout(timer) }, [scrollRequested])
   useEffect(() => {
     if (!selectedId || readPosition.conversation !== selectedId || !readPosition.seq || preview || !visible) return
     void chat.markDelivered(selectedId, readPosition.seq).catch(() => {})
@@ -309,7 +354,7 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
     if (sending) return
     selectionGeneration.current++
     if (history.snapshot().accessLost && selectedId === item.id) void history.select(item.id)
-    setSelected(item); setUnreadMark(item.unread_count > 0 ? { id: item.id, seq: item.last_read_seq } : null); setBody(conversationDrafts.read(me?.id ?? '', item.id)); setForcedCaret(undefined); setReply(null); setEditing(null); setPerson(null); setVotes(null)
+    setSelected(item); setUnreadMark(item.unread_count > 0 ? { id: item.id, seq: item.last_read_seq, count: item.unread_count } : null); setBody(conversationDrafts.read(me?.id ?? '', item.id)); setForcedCaret(undefined); setReply(null); setEditing(null); setPerson(null); setVotes(null)
     setAttachments([]); setError(''); setPicker(false); draftId.current = randomUUID()
   }
   function changeBody(value: string) {
@@ -331,16 +376,20 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
       setBody(editing ? conversationDrafts.read(me?.id ?? '', selected.id) : ''); setAttachments([]); setEditing(null); setReply(null); draftId.current = randomUUID(); followIncoming.current = true; nearBottom.current = true; listRef.current?.scrollToEnd({ animated: false }); if (historyState.window.hasMoreAfter) void history.latest(); refresh()
     } catch (e) { if (active.current) { if (editing) failAction(e); else setError(errorMessage(e)) } } finally { if (active.current) setSending(false) }
   }
-  async function attach(type: string | string[] = '*/*', camera = false) {
+  // Attach pages: the chooser (gallery multi-select, camera, documents), then the full-screen preview / edit page.
+  async function attach(source: AttachSource) {
     if (!selected?.can.send_file || pickingFile.current || editing) return
     pickingFile.current = true
     const generation = selectionGeneration.current
     try {
       const current = () => active.current && generation === selectionGeneration.current
-      const file = camera ? await capturePhoto(current) : await pickDocument(type)
-      if (!file) return
-      if (!current()) { await file.dispose?.(); return }
-      setPendingFile({ conversation: selected.id, file })
+      const room = MAX_FILES - attachments.length
+      const picked = source === 'camera' ? [await capturePhoto(current)].filter((f): f is PickedFile => !!f) : source === 'media' ? await pickMedia(room) : await pickDocuments(room)
+      if (!current()) { for (const file of picked) await file.dispose?.(); return }
+      const { accepted, rejected, notice } = acceptFiles(attachments.length, picked)
+      for (const file of rejected) await Promise.resolve(file.dispose?.()).catch(() => {})
+      if (!accepted.length) { if (notice) setError(notice); return }
+      setPendingFile({ conversation: selected.id, files: accepted, source, notice })
     } catch (e) { if (active.current) setError(errorMessage(e)) }
     finally { pickingFile.current = false }
   }
@@ -355,8 +404,9 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
   const split = isWide(width)
   const blocked = sending
   const rowState = useMemo(() => ({ selected: selected?.id, blocked, typingIn }), [selected?.id, blocked, typingIn])
-  return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-    {!preview && <ConnectionStatus error={error || historyState.error || conversations.error} retrying={loading || historyState.loading} onRetry={() => { setError(''); if (historyState.accessLost) void history.select(selectedId ?? null); else void history.reconcile(); refresh() }} />}
+  // The composer keeps itself above the keyboard (useKeyboardInset), so no KeyboardAvoidingView wraps the screen.
+  return <View style={{ flex: 1 }}>
+    {!preview && <ConnectionStatus placement="inline" error={error || historyState.error || (items.length ? conversations.error : '')} retrying={loading || historyState.loading} onRetry={() => { setError(''); if (historyState.accessLost) void history.select(selectedId ?? null); else void history.reconcile(); refresh() }} />}
     <View style={{ flex: 1, flexDirection: split ? 'row' : 'column' }}>
       {(split || !opened) && <View style={[{ width: split ? chatListWidth(width) : '100%', flex: split ? undefined : 1, borderRightWidth: split ? 1 : 0 }, glass(c, 1), { backgroundColor: c.shell }]}>
         {/* Reference ConversationList header: p-3, space-y-2.5, bottom border; phones show "Chats" in the top bar already. */}
@@ -396,6 +446,7 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
             {preview && ['Design team', 'Operations', 'Saved messages'].filter(t => t.toLowerCase().includes(query.toLowerCase())).map(title => <Card key={title}><Label>{title}</Label><Label>A place for your team’s conversations.</Label></Card>)}
           </>}
           ListFooterComponent={<>
+            {!preview && !loading && !items.length && !!conversations.error && <ErrorState message={conversations.error} onRetry={() => void refreshConversations()} />}
             {!preview && !loading && !items.length && !shownHits?.results.length && !error && !conversations.error && <EmptyState title={query ? 'No chats match.' : filter === 'archived' ? 'No archived chats.' : filter === 'locked' ? 'No locked chats.' : lockedCount ? 'No other chats.' : 'No chats yet.'} description={!query && filter === 'all' ? 'Start a conversation with anyone at JIVO.' : undefined} action={!query && filter === 'all' ? <Button title="Start a chat" onPress={() => setPicker(true)} /> : undefined} />}
             {shownHits?.incomplete && <Text accessibilityRole={Platform.OS === 'web' ? ('status' as never) : undefined} style={{ paddingHorizontal: 12, paddingVertical: 8, color: c.muted, fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20 }}>Search incomplete: some messages are unavailable.</Text>}
             {!!shownHits?.results.length && <View accessibilityLabel="Messages found">
@@ -422,9 +473,10 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
             <PeerCallButton conversation={selected} />
             <HeaderButton icon="moreVertical" label="Conversation options" onPress={() => setMenuMode('options')} />
           </View>
-          <View style={{flex:1,backgroundColor:appearance?.type==='color' && /^#[0-9a-f]{6}$/i.test(appearance.color??'')?appearance.color!:'transparent'}}>{backgroundImage&&<Image pointerEvents="none" source={{uri:backgroundImage}} style={{position:'absolute',width:'100%',height:'100%',opacity:0.35}} resizeMode="cover"/>}<FlatList accessibilityLabel={readerAway ? 'Message history' : 'Latest messages'} key={selected.id} ref={listRef} data={messages} keyExtractor={m => m.client_id ?? m.id} ListFooterComponent={<PendingMessages conversation={selected.id} messages={messages} entries={pending.entries} />} contentContainerStyle={{ paddingVertical: 8, flexGrow: 1, justifyContent: 'flex-end' }} keyboardShouldPersistTaps="handled" onViewableItemsChanged={onViewable} viewabilityConfig={viewability} maintainVisibleContentPosition={readerAway ? { minIndexForVisible: 0 } : undefined}
-            scrollEventThrottle={16} onScroll={event => { const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent; const atBottom = contentSize.height - layoutMeasurement.height - contentOffset.y < 96; const movedUp = contentOffset.y < scrollOffset.current - 1; const moved = Math.abs(contentOffset.y - scrollOffset.current) > 1; scrollOffset.current = contentOffset.y; if (movedUp) { followIncoming.current = false; nearBottom.current = atBottom } else if (atBottom || moved && !followIncoming.current) nearBottom.current = atBottom; setReaderAway(!nearBottom.current); if (nearBottom.current && !historyState.window.hasMoreAfter) setNewMessages(false) }}
-            onContentSizeChange={(_width, height) => { contentHeight.current = height; scrollRequested(); if (followIncoming.current) { listRef.current?.scrollToOffset({ offset: contentHeight.current, animated: false }) } }}
+          <View style={{flex:1,backgroundColor:appearance?.type==='color' && /^#[0-9a-f]{6}$/i.test(appearance.color??'')?appearance.color!:'transparent'}}>{backgroundImage&&<Image pointerEvents="none" source={{uri:backgroundImage}} style={{position:'absolute',width:'100%',height:'100%',opacity:0.35}} resizeMode="cover"/>}<FlatList accessibilityLabel={readerAway ? 'Message history' : 'Latest messages'} key={selected.id} ref={listRef} data={messages} initialNumToRender={OPEN_PAGE + 10} style={{ opacity: placing ? 0 : 1 }} keyExtractor={m => m.client_id ?? m.id} ListFooterComponent={<PendingMessages conversation={selected.id} messages={messages} entries={pending.entries} />} contentContainerStyle={{ paddingVertical: 8, flexGrow: 1, justifyContent: 'flex-end' }} keyboardShouldPersistTaps="handled"
+            onLayout={() => { if (nearBottom.current && !historyState.window.hasMoreAfter) listRef.current?.scrollToOffset({ offset: contentHeight.current, animated: false }) }} onViewableItemsChanged={onViewable} viewabilityConfig={viewability} maintainVisibleContentPosition={readerAway ? { minIndexForVisible: 0 } : undefined}
+            scrollEventThrottle={16} onScroll={event => { if (placing) return; const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent; const atBottom = contentSize.height - layoutMeasurement.height - contentOffset.y < 96; const movedUp = contentOffset.y < scrollOffset.current - 1; const moved = Math.abs(contentOffset.y - scrollOffset.current) > 1; scrollOffset.current = contentOffset.y; if (movedUp) { followIncoming.current = false; nearBottom.current = atBottom } else if (atBottom || moved && !followIncoming.current) nearBottom.current = atBottom; setReaderAway(!nearBottom.current); if (nearBottom.current && !historyState.window.hasMoreAfter) setNewMessages(false) }}
+            onContentSizeChange={(_width, height) => { contentHeight.current = height; scrollRequested(messages.length > 0); if (followIncoming.current) { listRef.current?.scrollToOffset({ offset: contentHeight.current, animated: false }) } }}
             onScrollToIndexFailed={info => { if (jumpAttempts.current++ >= 3) return; listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false }); if (jumpTimer.current) clearTimeout(jumpTimer.current); jumpTimer.current = setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, animated: false, viewPosition: 0, viewOffset: 8 }), 100) }}
             ListEmptyComponent={!pending.entries.some(p => p.conversation === selected.id) && (!historyMatchesSelection || historyState.loading) ? <MessageSkeleton /> : undefined}
             ListHeaderComponent={historyState.window.hasMoreBefore ? <Pressable accessibilityRole="button" accessibilityLabel="Load earlier messages" disabled={historyState.loading} onPress={loadEarlier} style={{ alignSelf: 'center', minHeight: 44, paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center' }}><Text style={{ color: c.dark ? c.brand : c.primary, fontSize: 13, fontFamily: 'Inter_500Medium' }}>Load earlier messages</Text></Pressable> : messages.length > 0 && !historyState.window.hasMoreBefore ? <HistoryStart visibleFrom={historyState.window.visibleFrom} /> : undefined}
@@ -435,20 +487,23 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
               const meta = { createdAt: m.created_at, edited: !!m.edited_at && !m.deleted, status: own && !m.deleted ? statusFor(m, me?.id ?? '', historyState.window.receipts) || m.status || 'sent' : null }
               // Bubbles that end with text keep the time inline on the last line, as the reference floats it right.
               const plain = !m.deleted && !!m.body && !m.poll && !m.location && !m.event && !m.contact && !firstLink(m.body)
-              return <>{day}<MessageBubble own={own} sender={selected.kind === 'group' && !own && runStart ? m.sender?.name || 'JM' : null} label={`Message from ${m.sender?.name || 'JM'}`} meta={meta} inlineMeta={plain} selected={actions?.id === m.id} chevron={!m.deleted} actionsDisabled={blocked} onActions={() => setActions(m)}
+              // U-028: a sticker is drawn alone, without a bubble (WhatsApp).
+              if (isStickerMessage(m)) return <>{day}<StickerBubble own={own} tail={runStart} sender={selected.kind === 'group' && !own && runStart ? m.sender?.name || 'JM' : null} attachment={m.attachments[0]} origin={origin} label={`Sticker from ${m.sender?.name || 'JM'}`} meta={meta} selected={actions?.id === m.id} onActions={blocked ? undefined : () => setActions(m)}
+                forwarded={m.forwarded} reply={m.reply_to} onJump={seq => void history.latest(seq)} reactions={m.reactions} onReactions={() => setActions(m)} onOpen={() => setImage({ conversation: m.conversation, message: m.id, attachment: m.attachments[0].id })} /></>
+              return <>{day}<MessageBubble own={own} tail={runStart} sender={selected.kind === 'group' && !own && runStart ? m.sender?.name || 'JM' : null} label={`Message from ${m.sender?.name || 'JM'}`} meta={meta} inlineMeta={plain} metaOverlay={!m.deleted && !m.body && !m.poll && !m.location && !m.event && !m.contact && overlaysMeta(m.attachments)} selected={actions?.id === m.id} chevron={!m.deleted} actionsDisabled={blocked} onActions={() => setActions(m)}
                 forwarded={!m.deleted && m.forwarded} reply={!m.deleted ? m.reply_to : null} onJump={seq => void history.latest(seq)} reactions={!m.deleted ? m.reactions : undefined} onReactions={() => setActions(m)}><View style={{ gap: 4 }}>
-              {!m.deleted && m.attachments.length > 0 && <MessageAttachments items={m.attachments} own={own} origin={origin} onImage={a => setImage({ conversation: m.conversation, message: m.id, attachment: a.id })} onMedia={a => setMedia({ conversation: m.conversation, message: m.id, attachment: a.id })} onExport={a => setExporting({ conversation: m.conversation, message: m.id, attachment: a.id })} />}
+              {!m.deleted && m.attachments.length > 0 && <MessageAttachments items={m.attachments} own={own} origin={origin} onImage={a => setImage({ conversation: m.conversation, message: m.id, attachment: a.id })} onMedia={a => (a.kind === 'video' ? setImage : setMedia)({ conversation: m.conversation, message: m.id, attachment: a.id })} onExport={a => setExporting({ conversation: m.conversation, message: m.id, attachment: a.id })} />}
               {m.deleted ? <DeletedText own={own} moderator={m.deleted_by_moderator} /> : !!m.body && <RichMessage own={own} body={m.body} mentions={live.members.filter(member=>m.mentions.includes(member.user.id)).map(member=>member.user.name)} trailing={plain ? <MessageMetaSpacer {...meta} /> : undefined} />}
               {!m.deleted && m.poll && <PollCard message={m} own={own} disabled={blocked} onVote={ids => void perform(() => chat.votePoll(m.id, ids))} onVoters={() => setVotes(m.id)} />}
               {!m.deleted && (m.location || m.event) && <SpecialMessage message={m} onChanged={() => void history.reconcile()} />}
               {!m.deleted && m.contact && <ContactCard person={m.contact} onProfile={() => setPerson(m.contact!)} />}
             </View></MessageBubble></> }} />
             {(readerAway || newMessages || historyState.window.hasMoreAfter) && <Pressable accessibilityRole="button" accessibilityLabel={newMessages ? 'New messages — jump to latest' : 'Jump to latest'} onPress={() => { setNewMessages(false); void history.latest() }}
-              style={{ position: 'absolute', right: 6, bottom: 6, padding: 6, ...listPointer }}>
-              {/* DEF-005: the transparent 6px ring makes the 32px pill a 44px hit box without changing how it looks. */}
-              {({ pressed }) => <View style={[glass(c, 4), { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, opacity: pressed ? 0.8 : 1 }]}>
-              {newMessages && <Text style={{ borderRadius: 999, paddingHorizontal: 6, backgroundColor: c.brandFill, color: '#ffffff', fontFamily: 'Inter_600SemiBold', fontSize: 12, lineHeight: 16, overflow: 'hidden' }}>New</Text>}
-              <Image accessible={false} source={require('../../assets/icons/ArrowDown.png')} style={{ width: 16, height: 16, tintColor: c.text }} />
+              style={{ position: 'absolute', right: 8, bottom: 8, padding: 2, ...listPointer }}>
+              {/* WhatsApp: a 40px round button with a down chevron at the lower right; a green dot marks unseen new messages. 44px hit box. */}
+              {({ pressed }) => <View style={[glass(c, 4), { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.8 : 1 }]}>
+              <Icon name="down" size={22} color={c.muted} />
+              {newMessages && <View accessible={false} style={{ position: 'absolute', top: -2, right: -2, width: 14, height: 14, borderRadius: 7, backgroundColor: c.brandFill, borderWidth: 2, borderColor: c.panel }} />}
               </View>}
             </Pressable>}</View>
           <View style={{ paddingHorizontal: 12, gap: 8 }}>
@@ -462,7 +517,7 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
           {selected.can.send && <ComposerPreview body={body} />}
           {selected.can.send && mention && <ScrollView horizontal style={{maxHeight:52}} contentContainerStyle={{gap:8}}>{live.members.filter(member => !member.is_me && member.user.name.toLowerCase().includes(mention.query.toLowerCase())).slice(0,8).map(member => <Button key={member.user.id} title={'Mention '+member.user.name} disabled={blocked} onPress={() => { const next = insertMention(body, caret, member.user.name); changeBody(next.text); setCaret(next.caret); setForcedCaret(next.caret) }} />)}</ScrollView>}
           </View>
-          {selected.can.send ? <ChatComposer key={selected.id} disabled={blocked} sendDisabled={!body.trim() && !attachments.length} sendLabel={sending ? 'Sending' : editing ? 'Save edit' : 'Send message'} onSend={() => void send()} attach={!editing ? { canSendFile: selected.can.send_file, onDocument: () => void attach(), onMedia: () => void attach(['image/*', 'video/*']), onCamera: () => void attach('image/*', true), onLocation: () => setTool('location'), onContact: () => setTool('contact'), onPoll: () => setTool('poll'), onEvent: () => setTool('event') } : undefined} onVoice={!editing && selected.can.send_file ? async file => { const clientId = randomUUID(); await enqueueFiles(me?.id ?? '', selected.id, { client_id: clientId, body: '', upload_ids: [] }, [{ key: randomUUID(), file }]); followIncoming.current = true; nearBottom.current = true; listRef.current?.scrollToEnd({ animated: false }); refresh() } : undefined} inputProps={{ value: body, onBlur: live.stop, selection: forcedCaret, onSelectionChange: event => setCaret(event.nativeEvent.selection), onChangeText: value => { setForcedCaret(undefined); changeBody(value); if (value.trim()) live.typing(); else live.stop() } }} /> : <Text style={{ color: selected.send_block === 'peer_inactive' ? (c.dark ? '#fbbf24' : '#b45309') : c.muted, backgroundColor: selected.send_block === 'peer_inactive' ? (c.dark ? '#3b3020' : '#fef3c7') : 'transparent', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderColor: c.border, textAlign: 'center', fontFamily: 'Inter_400Regular', fontSize: 14 }}>{selected.send_block === 'peer_inactive' ? 'This person is no longer active. You can still read your history, but cannot send new messages.' : 'Sending is unavailable in this conversation.'}</Text>}
+          {selected.send_block === 'contact_blocked' && selected.peer ? <BlockedBanner onPress={() => setBlocking({ id: selected.peer!.id, name: selected.title, blocked: true })} /> : selected.can.send ? <ChatComposer key={selected.id} disabled={blocked} sendDisabled={!body.trim() && !attachments.length} sendLabel={sending ? 'Sending' : editing ? 'Save edit' : 'Send message'} onSend={() => void send()} attach={!editing ? { canSendFile: selected.can.send_file, allowed: { location: !!me?.capabilities.includes('JM_LOCATION_SHARE'), contact: !!me?.capabilities.includes('JM_CONTACT_SHARE'), poll: !!me?.capabilities.includes('JM_POLL_CREATE'), event: !!me?.capabilities.includes('JM_EVENT_CREATE') }, onDocument: () => void attach('document'), onMedia: () => void attach('media'), onCamera: () => void attach('camera'), onLocation: () => setTool('location'), onContact: () => setTool('contact'), onPoll: () => setTool('poll'), onEvent: () => setTool('event') } : undefined} onSticker={!editing && selected.can.send_file ? async file => { await enqueueFiles(me?.id ?? '', selected.id, { client_id: randomUUID(), body: '', upload_ids: [], reply_to: reply?.id }, [{ key: randomUUID(), file }]); setReply(null); followIncoming.current = true; nearBottom.current = true; listRef.current?.scrollToEnd({ animated: false }); refresh() } : undefined} onVoice={!editing && selected.can.send_file ? async file => { const clientId = randomUUID(); await enqueueFiles(me?.id ?? '', selected.id, { client_id: clientId, body: '', upload_ids: [] }, [{ key: randomUUID(), file }]); followIncoming.current = true; nearBottom.current = true; listRef.current?.scrollToEnd({ animated: false }); refresh() } : undefined} inputProps={{ value: body, onBlur: live.stop, selection: forcedCaret, onSelectionChange: event => setCaret(event.nativeEvent.selection), onChangeText: value => { setForcedCaret(undefined); changeBody(value); if (value.trim()) live.typing(); else live.stop() } }} /> : <Text style={{ color: selected.send_block === 'peer_inactive' ? (c.dark ? '#fbbf24' : '#b45309') : c.muted, backgroundColor: selected.send_block === 'peer_inactive' ? (c.dark ? '#3b3020' : '#fef3c7') : 'transparent', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderColor: c.border, textAlign: 'center', fontFamily: 'Inter_400Regular', fontSize: 14 }}>{selected.send_block === 'peer_inactive' ? 'This person is no longer active. You can still read your history, but cannot send new messages.' : 'Sending is unavailable in this conversation.'}</Text>}
         </> : <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12, padding: 24 }}><View style={{ width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: c.successSoft }}><Icon name="messagesSquare" size={32} color={c.brand} /></View><Text accessibilityRole="header" style={{ fontFamily: 'Inter_600SemiBold', fontWeight: '600', color: c.text, fontSize: 18, lineHeight: 28, textAlign: 'center' }}>JIVO Messenger</Text><Text style={{ fontFamily: 'Inter_400Regular', color: c.muted, fontSize: 14, lineHeight: 20, textAlign: 'center', maxWidth: 384 }}>Choose a chat, or start one with anyone across JIVO.</Text></View>}
       </View>}
     </View>
@@ -472,12 +527,14 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
       <MenuItem icon={selected.pinned_at ? 'pinOff' : 'pin'} title={selected.pinned_at ? 'Unpin' : 'Pin'} disabled={blocked} onPress={() => { setMenu(false); void applySettings({ pinned: !selected.pinned_at }) }} />
       {lockState.unlocked && <MenuItem icon="eyeOff" title="Hide locked chats" onPress={() => { setMenu(false); chatLock.relock() }} />}
       <MenuSeparator />
+      {selected.kind === 'direct' && !isSelfChat(selected, me?.id) && !!selected.peer && <MenuItem icon="ban" title={blockCopy.menu(!!selected.blocked_by_me)} danger={!selected.blocked_by_me} onPress={() => { setMenu(false); setBlocking({ id: selected.peer!.id, name: selected.title, blocked: !!selected.blocked_by_me }) }} />}
       <MenuItem icon="eraser" title="Clear chat for me" danger disabled={blocked} onPress={() => { setMenu(false); setChoice('clear') }} />
     </ChatMenu>}
 
     {selected && <ConfirmSheet visible={choice === 'clear'} onClose={() => setChoice(null)} title="Clear this chat for you?" body="Messages so far are hidden for you only. Others still see them." confirmLabel="Clear chat" onConfirm={() => { setChoice(null); void perform(() => chat.clearChat(selected.id)).then(() => void history.latest()) }} />}
+    <BlockContactSheet target={blocking} onClose={() => setBlocking(null)} onDone={() => { setBlocking(null); refresh() }} />
     <ChatListActions chat={rowMenu} onClose={() => setRowMenu(null)} onChanged={refresh} onError={setError} onDeleted={id => { if (selectedId === id) { selectionGeneration.current++; setSelected(null) } }} />
-    {selected && pendingFile?.conversation === selected.id && <AttachmentPreview key={selected.id} initialFile={pendingFile.file} initialCaption={body} conversation={selected.id} onClose={() => setPendingFile(null)} onSend={async (files, caption, clientId) => {
+    {selected && pendingFile?.conversation === selected.id && <AttachmentPreview key={selected.id} initialFiles={pendingFile.files} source={pendingFile.source} notice={pendingFile.notice} initialCaption={body} conversation={selected.id} onClose={() => setPendingFile(null)} onSend={async (files, caption, clientId) => {
       await enqueueFiles(me?.id ?? '', selected.id, { client_id: clientId, body: withMentionTokens(caption.trim(), live.members), upload_ids: attachments.map(a => a.id), reply_to: reply?.id }, files, attachments)
       if (me) conversationDrafts.write(me.id, selected.id, '')
       setBody(''); setAttachments([]); setReply(null); setPendingFile(null); draftId.current = randomUUID()
@@ -486,8 +543,14 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
 
     {selected && selectedId && tool === 'details' && <ConversationDetails conversation={selectedId} initialDetail={historyState.detail ? { ...historyState.detail, ...selected } : undefined} onUpdated={next => setSelected(next)} onClear={() => void history.latest()} onChanged={() => { void history.refreshDetail(); void history.reconcile(); refresh() }} onLeave={() => { setTool(null); setSelected(null); refresh() }} onClose={() => setTool(null)} />}
     {selected && selectedId && tool === 'search' && <SearchMessages conversation={selectedId} onJump={seq => void history.latest(seq)} onClose={() => setTool(null)} />}
-    {selected && selectedId && tool === 'poll' && <CreatePoll conversation={selectedId} onSent={message => { history.accept(message); setTool(null); void history.latest(); refresh() }} onClose={() => setTool(null)} />}
-    {selected && selectedId && tool === 'contact' && <ShareContact conversation={selectedId} onSent={message => { history.accept(message); setTool(null); void history.latest(); refresh() }} onClose={() => setTool(null)} />}
+    {selected && selectedId && tool === 'poll' && <PollPage conversation={selectedId} onSent={message => { history.accept(message); setTool(null); void history.latest(); refresh() }} onClose={() => setTool(null)} />}
+    {selected && selectedId && tool === 'contact' && <ContactPage conversation={selectedId} onSent={message => { history.accept(message); setTool(null); void history.latest(); refresh() }} onClose={() => setTool(null)} onShareExternal={async contacts => {
+      // Reference shareExternal: phone contacts are vCard files in one message, through the outbox like any attachment.
+      const files = await Promise.all(contacts.slice(0, MAX_FILES).map(async contact => ({ key: randomUUID(), file: await vcardFile(contact) })))
+      try { await enqueueFiles(me?.id ?? '', selected.id, { client_id: randomUUID(), body: '', upload_ids: [] }, files) }
+      finally { for (const item of files) await Promise.resolve(item.file.dispose?.()).catch(() => {}) }
+      followIncoming.current = true; nearBottom.current = true; listRef.current?.scrollToEnd({ animated: false }); refresh()
+    }} />}
     {selected && tool === 'event' && <EventComposer conversation={selected.id} onSent={message => { history.accept(message); setTool(null); void history.latest(); refresh() }} onClose={() => setTool(null)} />}
     {selected && tool === 'location' && <LocationComposer conversation={selected.id} onSent={message => { history.accept(message); setTool(null); void history.latest(); refresh() }} onClose={() => setTool(null)} />}
     {info && selected && info.conversation===selected.id && <MessageDetails message={info} onClose={()=>setInfo(null)} />}
@@ -496,7 +559,7 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
     {forwarding && <ForwardMessage message={forwarding} onClose={() => { setForwarding(null); refresh() }} />}
     {exporting&&exportAttachment&&<AttachmentExport key={exporting.message+exporting.attachment} conversation={exporting.conversation} message={exporting.message} seq={messages.find(m=>m.id===exporting.message)?.seq??0} attachment={exportAttachment} onClose={()=>setExporting(null)}/>}
     {mediaAttachment && <MediaPlayback attachment={mediaAttachment} onClose={() => setMedia(null)} />}
-    {imageAttachment && <FullImage attachment={imageAttachment} onClose={() => setImage(null)} previous={imageIndex > 0 ? () => setImage(gallery[imageIndex - 1]) : undefined} next={imageIndex >= 0 && imageIndex < gallery.length - 1 ? () => setImage(gallery[imageIndex + 1]) : undefined} />}
+    {imageAttachment && imageIndex >= 0 && selected && <ChatMediaViewer items={gallery} index={imageIndex} onIndex={i => { const item = gallery[i]; if (item) setImage({ conversation: selected.id, message: item.message, attachment: item.attachment.id }) }} onClose={() => setImage(null)} onShare={item => setExporting({ conversation: selected.id, message: item.message, attachment: item.attachment.id })} />}
     {picker && <ConversationPicker groupAllowed={Boolean(me?.capabilities.includes('JM_CREATE_GROUP') && me?.can_create_groups !== false)} onChoose={choose} onClose={() => setPicker(false)} />}
     <MessageActionSheet key={actions?.id ?? 'none'} message={actions} own={!!actions && actions.sender?.id === me?.id} busy={sending} canReply={!!selected?.can.send} editDisabled={attachments.length > 0} onClose={() => setActions(null)}
       onReact={emoji => { if (actions) void perform(() => chat.setReaction(actions.id, emoji)) }} onUnreact={() => { if (actions) void perform(() => chat.clearReaction(actions.id)) }}
@@ -504,8 +567,9 @@ export function Messenger({ preview = false, initialConversation, initialSeq }: 
       onForward={() => { setForwarding(actions); setActions(null) }}
       onEdit={() => { if (!actions) return; setEditing(actions); setReply(null); setBody(actions.body); setActions(null) }}
       onInfo={() => { setInfo(actions); setActions(null) }}
+      onStar={a => { const path = a.preview_url || a.thumb_url; if (path) void perform(async () => { await favouriteStickers.star(a.id, { path }); setActionNotice(STARRED); setTimeout(() => setActionNotice(text => text === STARRED ? '' : text), 3000) }) }}
       onExport={a => { if (!actions) return; setExporting({ conversation: actions.conversation, message: actions.id, attachment: a.id }); setActions(null) }}
       onDelete={scope => { if (actions) void perform(() => chat.deleteMessage(actions.id, scope).then(() => { history.event({ type: scope === 'me' ? 'MESSAGE_HIDDEN' : 'MESSAGE_DELETED', data: { conversation: actions.conversation, id: actions.id, seq: actions.seq, by_moderator: false, updated_at: new Date().toISOString() } }) })) }} />
-  </KeyboardAvoidingView>
+  </View>
 }
 

@@ -129,6 +129,7 @@ const icons = {
   x: require('../../assets/icons/X.png'),
   smilePlus: require('../../assets/icons/SmilePlus.png'),
   keyboard: require('../../assets/icons/Keyboard.png'),
+  backspace: require('../../assets/icons/Delete.png'),
   contact: require('../../assets/icons/Contact.png'),
   listChecks: require('../../assets/icons/ListChecks.png'),
   bellDot: require('../../assets/icons/BellDot.png'),

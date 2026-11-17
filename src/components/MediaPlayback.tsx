@@ -41,3 +41,23 @@ export function MediaPlayback({ attachment, onClose }: { attachment: Attachment;
     {!uri ? <Label>This media is unavailable.</Label> : resource.loading ? <ActivityIndicator accessibilityLabel="Loading media session" /> : resource.error ? <><Label>{errorMessage(resource.error)}</Label><Button title="Retry media" onPress={resource.refresh} /></> : resource.value ? attachment.kind === 'video' ? <VideoPlayback source={resource.value} /> : <AudioPlayback source={resource.value} /> : null}
     <Button title="Close media" onPress={onClose} /></Sheet>
 }
+
+/** A chat video as a page of the full-screen media viewer: fills the page, plays only when the person presses play. */
+export function ViewerVideo({ attachment }: { attachment: Attachment }) {
+  const uri = attachment.status === 'ready' ? mediaUrl(attachment.preview_url || attachment.download_url, origin) : null
+  const load = useCallback(() => uri ? authenticatedMediaSource(uri) : Promise.resolve(null), [uri]); const resource = useResource(load)
+  const note = (text: string) => <Text accessibilityRole="alert" style={{ color: 'rgba(255,255,255,0.8)', fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20, textAlign: 'center', padding: 24 }}>{text}</Text>
+  return <View style={{ flex: 1, justifyContent: 'center', backgroundColor: '#000000' }}>
+    {!uri ? note('This video is unavailable.') : resource.loading ? <ActivityIndicator accessibilityLabel="Loading video" color="#ffffff" /> : resource.error ? note(errorMessage(resource.error)) : resource.value ? <ViewerVideoPlayer source={resource.value} /> : null}
+  </View>
+}
+function ViewerVideoPlayer({ source }: { source: MediaSource }) {
+  const player = useVideoPlayer({ ...source, useCaching: false }, value => { value.loop = false; value.staysActiveInBackground = false; value.showNowPlayingNotification = false })
+  const status = useEvent(player, 'statusChange', { status: player.status })
+  useEffect(() => subscribeLifecycle(active => { if (!active) player.pause() }), [player])
+  return <View style={{ flex: 1, justifyContent: 'center' }}>
+    <VideoView player={player} nativeControls crossOrigin="use-credentials" contentFit="contain" fullscreenOptions={{ enable: true }} style={{ width: '100%', height: '100%' }} />
+    {status.status === 'loading' && <ActivityIndicator accessibilityLabel="Loading video" color="#ffffff" style={{ position: 'absolute', alignSelf: 'center' }} />}
+    {status.status === 'error' && <Text accessibilityRole="alert" style={{ position: 'absolute', alignSelf: 'center', color: '#ffffff', fontFamily: 'Inter_400Regular', fontSize: 14, textAlign: 'center', padding: 24 }}>Unable to play this video. Check your connection and file access, then reopen it.</Text>}
+  </View>
+}

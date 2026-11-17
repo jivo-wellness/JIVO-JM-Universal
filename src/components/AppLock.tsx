@@ -5,6 +5,7 @@ import * as SecureStore from 'expo-secure-store'
 import { useSession } from '../core/auth/Session'
 import { NativeAppLock } from '../core/auth/nativeAppLock'
 import { useScreenCaptureGuard } from '../shared/useScreenCaptureGuard'
+import { startupSignals } from '../shared/startup'
 import { SettingRow } from './ProfileSection'
 import { Button, Label, useColors } from '../ui'
 
@@ -24,16 +25,17 @@ function AccountLock({ account, children }: { account: string; children: ReactNo
   const state = useSyncExternalStore(model.subscribe, model.snapshot, model.snapshot)
   const [foreground, setForeground] = useState(AppState.currentState === 'active')
   useEffect(() => {
-    void model.restore()
+    // The start-up splash waits for this local read (U-031), so the lock cover or the app is its first frame.
+    void model.restore().finally(() => { startupSignals.set('covered', model.snapshot().enabled ? account : null); startupSignals.set('lock', account) })
     const sub = AppState.addEventListener('change', next => { setForeground(next === 'active'); if (next === 'background') model.background() })
     return () => { sub.remove(); model.dispose() }
-  }, [model])
+  }, [model, account])
   const cover = !state.ready || (state.enabled && (state.locked || !foreground))
   // Cover shown: block capture (Android FLAG_SECURE also blanks recents). Lock on: blur the iOS app-switcher snapshot.
   useScreenCaptureGuard(cover ? 'capture' : state.enabled ? 'switcher' : false)
   // Preserve an already-open screen beneath the privacy cover. Native system
   // pickers temporarily background JM; unmounting loses their reviewed result.
-  return <Context.Provider value={model}>{(state.opened || !cover) && <View style={{ flex: 1, display: cover ? 'none' : 'flex' }} accessibilityElementsHidden={cover} importantForAccessibility={cover ? 'no-hide-descendants' : 'auto'}>{children}</View>}{cover && <View style={{ flex: 1, justifyContent: 'center', padding: 24, gap: 16, backgroundColor: colors.bg }}>
+  return <Context.Provider value={model}>{(state.opened || !cover) && <View style={{ flex: 1, display: cover ? 'none' : 'flex' }} accessibilityElementsHidden={cover} importantForAccessibility={cover ? 'no-hide-descendants' : 'auto'}>{children}</View>}{cover && !state.ready && !state.error && <View style={{ flex: 1, backgroundColor: colors.bg }} />}{cover && (state.ready || !!state.error) && <View style={{ flex: 1, justifyContent: 'center', padding: 24, gap: 16, backgroundColor: colors.bg }}>
     <Label large>JIVO JM is locked</Label>
     {!!state.error && <Label>{state.error}</Label>}
     {state.busy && <ActivityIndicator />}

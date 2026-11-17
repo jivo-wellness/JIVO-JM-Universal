@@ -1,34 +1,130 @@
-import { useState, useSyncExternalStore } from 'react'
-import { Platform, Pressable, Text, View } from 'react-native'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Animated, Easing, Platform, Pressable, Text, View, type ViewStyle } from 'react-native'
 import { realtime } from '../core/realtime/socket'
-import { Button, Label, useColors } from '../ui'
+import { Button, Card, glass, useColors } from '../ui'
+import { ConnectionBanner } from '../shared/connectionBanner'
 import { Icon } from './Icon'
-import { Sheet } from './Sheet'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-/** `reconnecting`: the caller already retries on reconnect/foreground/backoff (session restore), so say so instead of asking for a tap. */
-export function ConnectionStatus({ error, onRetry, retrying = false, reconnecting = false }: { error?: string | null; onRetry?: () => void; retrying?: boolean; reconnecting?: boolean }) {
-  const status = useSyncExternalStore(realtime.subscribe, realtime.snapshot, realtime.snapshot)
+const NETWORK = 'Cannot reach JM'
+const OFFLINE_TEXT = 'No internet connection. Messages you send wait and go out when you’re back.'
+
+/** Reference animate-spin: one turn per second. */
+function Spinning({ children }: { children: ReactNode }) {
+  const [turn] = useState(() => new Animated.Value(0))
+  useEffect(() => {
+    const loop = Animated.loop(Animated.timing(turn, { toValue: 1, duration: 1000, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web' }))
+    loop.start(); return () => loop.stop()
+  }, [turn])
+  return <Animated.View style={{ transform: [{ rotate: turn.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }}>{children}</Animated.View>
+}
+
+/** What the chat page reports to the screen-level pill (it sits below the shell header, the pill sits at the top). */
+interface Report { error: string; retrying: boolean; retry?: () => void }
+let report: Report | null = null
+const reportListeners = new Set<() => void>()
+const setReport = (next: Report | null) => { report = next; reportListeners.forEach(fn => fn()) }
+const subscribeReport = (fn: () => void) => { reportListeners.add(fn); return () => { reportListeners.delete(fn) } }
+const readReport = () => report
+
+/**
+ * Reference core/pwa/ConnectionBanner: a small glass pill fixed at the top of the screen. What it shows comes from the
+ * ConnectionBanner state machine (src/shared/connectionBanner.ts): "Reconnecting…" / the offline sentence / a screen's
+ * "Cannot reach JM" only after the trouble has lasted 4 s (a blip shows nothing), and a short "Connected" only after
+ * such an outage. `placement="inline"` (the chat page) draws only the thin bar for a screen's own non-network failure
+ * and hands its network error and retry to the top pill that Workspace draws on every page.
+ */
+export function ConnectionStatus({ error, onRetry, retrying = false, placement = 'top' }: { error?: string | null; onRetry?: () => void; retrying?: boolean; reconnecting?: boolean; placement?: 'top' | 'inline' }) {
+  const retryRef = useRef(onRetry)
+  useEffect(() => { retryRef.current = onRetry })
+  const inline = placement === 'inline'
+  const message = error ?? ''
+  const hasRetry = !!onRetry
+  useEffect(() => {
+    if (!inline) return
+    setReport({ error: message, retrying, retry: hasRetry ? () => retryRef.current?.() : undefined })
+    return () => setReport(null)
+  }, [inline, message, retrying, hasRetry])
+  if (inline) return message && !isNetworkError(message) ? <ErrorBar error={message} onRetry={onRetry} retrying={retrying} /> : null
+  return <TopPill error={error} onRetry={onRetry} retrying={retrying} />
+}
+
+const isNetworkError = (error: string) => error.startsWith(NETWORK) || error.startsWith('Offline')
+
+function ErrorBar({ error, onRetry, retrying }: { error: string; onRetry?: () => void; retrying: boolean }) {
   const c = useColors()
-  const [showRetry, setShowRetry] = useState(false)
-  const close = () => setShowRetry(false)
-  // Offline wins over a network error: retrying cannot help, and the user needs to know sends are queued.
-  const networkError = !!error && error.startsWith('Cannot reach JM')
-  const text = status === 'offline' && (!error || networkError) ? 'Offline. Messages will send when connected.'
-    : error
-    ? networkError ? reconnecting ? 'Connection unavailable. Reconnecting automatically; queued messages stay saved on this device.' : 'Connection unavailable. Tap to retry.' : error
-    : status === 'offline' ? 'Offline. Messages will send when connected.'
-    : status === 'connecting' || status === 'reconnecting' ? 'Reconnecting...'
-    : status === 'forbidden' ? 'Live updates unavailable. Refresh your session.' : ''
-  if (!text) return null
-  return <><View style={{ minHeight: 44, paddingLeft: 12, paddingRight: onRetry ? 4 : 12, paddingVertical: 2, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.panel, borderBottomWidth: 1, borderBottomColor: c.border }}>
-    <Icon name={status === 'offline' ? 'wifiOff' : 'alert'} size={16} color={c.muted} />
-    <Text accessibilityRole={Platform.OS === 'web' ? 'status' : undefined} accessibilityLiveRegion="polite" style={{ flex: 1, color: c.muted, fontSize: 12, lineHeight: 17 }}>{text}</Text>
-    {onRetry && <Pressable accessibilityRole="button" accessibilityLabel="Retry connection" accessibilityState={{ disabled: retrying, busy: retrying }} disabled={retrying} onPress={() => setShowRetry(true)} style={({ pressed }) => ({ width: 44, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 20, opacity: retrying ? 0.45 : pressed ? 0.6 : 1 })}><Icon name="refreshCw" size={18} color={c.brand} /></Pressable>}
+  return <View style={{ minHeight: 44, paddingLeft: 12, paddingRight: onRetry ? 4 : 12, paddingVertical: 2, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.panel, borderBottomWidth: 1, borderBottomColor: c.border }}>
+    <Icon name="triangleAlert" size={16} color={c.danger} />
+    <Text accessibilityRole={Platform.OS === 'web' ? 'alert' : undefined} accessibilityLiveRegion="polite" style={{ flex: 1, color: c.danger, fontSize: 14, lineHeight: 20, fontFamily: 'Inter_400Regular' }}>{error}</Text>
+    {onRetry && <Button size="sm" variant="ghost" title="Try again" disabled={retrying} onPress={onRetry} />}
   </View>
-    <Sheet visible={showRetry} onClose={close} title="Connection issue" bottomAligned
-      footer={<><Button title="Not now" size="sm" variant="secondary" onPress={close} /><Button title="Retry" size="sm" loading={retrying} onPress={() => { close(); onRetry?.() }} /></>}>
-      <Label>{error || text}</Label>
-      <Text style={{ color: c.muted, fontSize: 14, lineHeight: 20 }}>Check your connection and try again. Queued messages stay saved on this device.</Text>
-    </Sheet>
-  </>
+}
+
+function TopPill({ error: own, onRetry: ownRetry, retrying: ownRetrying }: { error?: string | null; onRetry?: () => void; retrying: boolean }) {
+  const [banner] = useState(() => new ConnectionBanner(realtime))
+  const view = useSyncExternalStore(banner.subscribe, banner.view, banner.view)
+  const status = useSyncExternalStore(realtime.subscribe, realtime.snapshot, realtime.snapshot)
+  const reported = useSyncExternalStore(subscribeReport, readReport, readReport)
+  const error = own || reported?.error || ''
+  const onRetry = own ? ownRetry : reported?.retry
+  const retrying = own ? ownRetrying : !!reported?.retrying
+  // "Offline: showing recently synchronized messages." is the cached view, not a failure of this screen.
+  const networkError = !!error && isNetworkError(error)
+  useEffect(() => { banner.setNetworkError(networkError) }, [banner, networkError])
+  if (own && !networkError) return <ErrorBar error={own} onRetry={ownRetry} retrying={ownRetrying} />
+  if (status === 'forbidden' && view === 'none') return <Pill tone="danger" icon="alert" text="Live updates unavailable. Refresh your session." />
+  if (view === 'none') return null
+  if (view === 'connected') return <Pill tone="success" icon="wifi" text="Connected" />
+  if (view === 'offline') return <Pill tone="danger" icon="cloudOff" text={OFFLINE_TEXT} />
+  if (view === 'network' && networkError) return <Pill tone="brand" icon="refreshCw" spin text={error!} onPress={!retrying ? onRetry : undefined} />
+  return <Pill tone="brand" icon="refreshCw" spin text="Reconnecting…" />
+}
+
+function Pill({ tone, icon, text, spin = false, onPress }: { tone: 'brand' | 'danger' | 'success'; icon: 'refreshCw' | 'cloudOff' | 'wifi' | 'alert'; text: string; spin?: boolean; onPress?: () => void }) {
+  const c = useColors()
+  // Reference `top-[env(safe-area-inset-top)] pt-2`: below the status bar, over the page header.
+  const inset = useSafeAreaInsets()
+  const color = tone === 'brand' ? c.brand : tone === 'danger' ? c.danger : c.success
+  const glyph = <Icon name={icon} size={16} color={color} />
+  const pill: ViewStyle = { maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 999, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 6, boxShadow: '0 1px 3px rgba(0,0,0,0.1), 0 1px 2px -1px rgba(0,0,0,0.1)', ...glass(c, 4) }
+  const body = <><View>{spin ? <Spinning>{glyph}</Spinning> : glyph}</View><Text style={{ flexShrink: 1, color: c.text, fontFamily: 'Inter_500Medium', fontWeight: '500', fontSize: 14, lineHeight: 20 }}>{text}</Text></>
+  return <View pointerEvents="box-none" accessibilityRole={Platform.OS === 'web' ? 'status' : undefined} accessibilityLiveRegion="polite" style={{ position: 'absolute', top: inset.top, left: 0, right: 0, zIndex: 40, alignItems: 'center', paddingHorizontal: 16, paddingTop: 8 }}>
+    {onPress ? <Pressable accessibilityRole="button" accessibilityLabel={`${text} Try again`} onPress={onPress} style={pill}>{body}</Pressable> : <View style={pill}>{body}</View>}
+  </View>
+}
+
+/** Reference core/auth/guards RequireSession "unreachable": a centred card, Try again and Sign out. */
+export function SessionUnreachable({ onRetry, onSignOut }: { onRetry: () => void; onSignOut: () => void }) {
+  const c = useColors()
+  return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+    <Card style={{ width: '100%', maxWidth: 448, padding: 24, gap: 0 }}>
+      <Icon name="wifiOff" size={32} color={c.muted} />
+      <Text accessibilityRole="header" style={{ marginTop: 12, color: c.text, fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 18, lineHeight: 28 }}>Cannot reach JM</Text>
+      <Text style={{ marginTop: 4, color: c.muted, fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20 }}>Check your connection. You are still signed in; this page retries when you are back online.</Text>
+      <View style={{ marginTop: 16, flexDirection: 'row', gap: 8 }}>
+        {/* Reference h-10 (40px) buttons; the touch area reaches 44px through hitSlop. */}
+        <Button title="Try again" onPress={onRetry} style={{ minHeight: 40 }} hitSlop={2} />
+        <Button title="Sign out" variant="secondary" onPress={onSignOut} style={{ minHeight: 40 }} hitSlop={2} />
+      </View>
+    </Card>
+  </View>
+}
+
+/**
+ * Root error boundary (expo-router `ErrorBoundary`). The reference has none (a render error leaves a blank page), so
+ * this is the RequireSession card with the DataState error mark: a TriangleAlert in danger, a title, one sentence,
+ * and Try again (re-renders the app).
+ */
+export function AppCrashed({ onRetry }: { onRetry: () => void }) {
+  const c = useColors()
+  return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16, backgroundColor: c.bg }}>
+    <Card style={{ width: '100%', maxWidth: 448, padding: 24, gap: 0 }}>
+      <Icon name="triangleAlert" size={32} color={c.danger} />
+      <Text accessibilityRole="header" style={{ marginTop: 12, color: c.text, fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 18, lineHeight: 28 }}>Something went wrong</Text>
+      <Text style={{ marginTop: 4, color: c.muted, fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20 }}>JM hit an unexpected problem on this screen. Try again.</Text>
+      <View style={{ marginTop: 16, flexDirection: 'row', gap: 8 }}>
+        <Button title="Try again" onPress={onRetry} style={{ minHeight: 40 }} hitSlop={2} />
+      </View>
+    </Card>
+  </View>
 }

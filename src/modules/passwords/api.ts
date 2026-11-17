@@ -278,7 +278,8 @@ export const listShared = async () => (await api.get<(Entry & { share: Share })[
 export const revealField = async (id: string, field: string, version?: number) =>
   (await api.post<{ field: string; value: string; version: number; expires_in: number }>(`/entries/${id}/reveal/`, { field, version }, jp)).data
 export const reportCopy = async (id: string, field: string) => api.post(`/entries/${id}/copy-event/`, { field }, jp)
-export const unlock = async (signal?: AbortSignal) => (await api.post<{ unlocked: boolean; expires_at: string | null }>('/unlock/', {}, { ...jp, signal })).data
+export const unlock = async (signal?: AbortSignal, options: { stepUpPrompt?: boolean } = {}) =>
+  (await api.post<{ unlocked: boolean; expires_at: string | null }>('/unlock/', {}, { ...jp, signal, ...options } as object)).data
 
 // Shares
 export const shareEntry = async (id: string, grantee_id: string, expires_at?: string) =>

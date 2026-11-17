@@ -17,8 +17,8 @@ exports.editor=async(page,entry)=>{
 exports.capture=async(page,height)=>{
  // Reference AttachMenu: Camera opens the device camera / file chooser directly and the photo goes to the attachment review.
  const camera=page.waitForEvent('filechooser');await button(page,'Attach').click();await page.getByRole('menuitem',{name:'Camera',exact:true}).click();await(await camera).setFiles({name:'synthetic-camera.png',mimeType:'image/png',buffer:await exports.png(page)});
- await button(page,'Send files').waitFor();await page.getByLabel('Attachment caption',{exact:true}).waitFor();assert.equal(await page.evaluate(()=>window.captureMock.calls),0);
- await button(page,'Close and discard files').click();await button(page,'Send files').waitFor({state:'hidden'});
+ await button(page,'Send 1 file').waitFor();await page.getByLabel('Attachment caption',{exact:true}).waitFor();assert.equal(await page.evaluate(()=>window.captureMock.calls),0);
+ await button(page,'Close and discard files').click();await button(page,'Send 1 file').waitFor({state:'hidden'});
  // Contact: Attach -> Contact opens the share-contact picker; closing it shares nothing.
  await button(page,'Attach').click();await page.getByRole('menuitem',{name:'Contact',exact:true}).click();await page.getByRole('dialog').last().waitFor();await page.keyboard.press('Escape');
  // Voice: the microphone replaces Send while the composer is empty.

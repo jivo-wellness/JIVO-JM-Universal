@@ -1,5 +1,5 @@
 import type { PickedFile } from './media/model'
-export interface QueuedMedia { key: string; name: string; mime: string; size: number; uploadId?: string }
+export interface QueuedMedia { key: string; name: string; mime: string; size: number; uploadId?: string; sticker?: boolean }
 const MAX_BYTES = 500 * 1024 * 1024
 function database(): Promise<IDBDatabase> { return new Promise((resolve, reject) => { const r = indexedDB.open('jm-pending-media', 1); r.onupgradeneeded = () => r.result.createObjectStore('files', { keyPath: 'id' }); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error) }) }
 async function transaction<T>(work: (store: IDBObjectStore, result: (value: T) => void) => void): Promise<T> {
@@ -11,7 +11,7 @@ export const queuedMedia = {
  async save(owner: string, client: string, key: string, file: PickedFile): Promise<QueuedMedia> {
   const blob = file.file ?? await (await fetch(file.uri)).blob()
   await transaction<void>((store, done) => { const read = store.getAll(); read.onsuccess = () => { if (read.result.reduce((n, r) => n + r.blob.size, 0) + blob.size > MAX_BYTES) { store.transaction.abort(); return } store.put({ id: id(owner, client, key), owner, client, blob }); done() } })
-  return { key, name: file.name, mime: file.mime, size: blob.size }
+  return { key, name: file.name, mime: file.mime, size: blob.size, ...(file.sticker ? { sticker: true } : {}) }
  },
  async open(owner: string, client: string, media: QueuedMedia): Promise<PickedFile> {
   const blob = await transaction<Blob | undefined>((store, done) => { const r = store.get(id(owner, client, media.key)); r.onsuccess = () => done(r.result?.blob) })

@@ -58,6 +58,6 @@ export function ChatHeaderTitle({ conversation, live, onPress }: { conversation:
   return <Pressable accessibilityRole="button" accessibilityLabel={`${title}, ${conversation.kind === 'group' ? 'group info' : 'profile'}`} onPress={onPress}
     style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4, borderRadius: 8, backgroundColor: hovered || pressed ? (c.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)') : 'transparent', ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : {}) })}>
     <ChatAvatar name={title} seed={conversation.peer?.id ?? conversation.id} uri={mediaUrl(conversation.avatar_url, origin)} group={conversation.kind === 'group'} size={40} />
-    <View style={{ flex: 1, minWidth: 0 }}><Text numberOfLines={1} style={{ color: c.text, fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 16, lineHeight: 24 }}>{title}</Text>{!!info && <Text numberOfLines={1} style={{ color: c.muted, fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 16 }}>{info}</Text>}</View>
+    <View style={{ flex: 1, minWidth: 0 }}><Text numberOfLines={1} style={{ color: c.text, fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 16, lineHeight: 24 }}>{title}</Text>{!!info && <Text numberOfLines={1} style={{ color: live && /typing/.test(live) ? c.brand : c.muted, fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 16 }}>{info}</Text>}</View>
   </Pressable>
 }

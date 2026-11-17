@@ -1,10 +1,18 @@
-[CmdletBinding()]
-param([ValidateSet('x86_64', 'arm64-v8a')][string] $Architecture = 'x86_64', [switch] $Release)
+﻿[CmdletBinding()]
+param(
+    [ValidateSet('x86_64', 'arm64-v8a')][string] $Architecture = 'x86_64',
+    [switch] $Release,
+    # JIVO's own signing key (lives outside every repo). Missing keystore = template debug key + warning.
+    [string] $KeystorePath = 'C:\JIVO-keys\jivo-jm-upload.jks',
+    [string] $KeyAlias = 'jivo-jm'
+)
 $ErrorActionPreference = 'Stop'
 $project = Split-Path -Parent $PSScriptRoot
 $previousCmake = $env:CMAKE_BUILD_PARALLEL_LEVEL
 $previousNode = $env:NODE_ENV
 $previousStage = $env:JM_NATIVE_APP_STAGE
+# Gradle reads ORG_GRADLE_PROJECT_<name> as project property <name>, so the password never appears on a command line.
+$signingPasswordVariables = @('ORG_GRADLE_PROJECT_android.injected.signing.store.password', 'ORG_GRADLE_PROJECT_android.injected.signing.key.password')
 $mappedDrive = $null
 Push-Location -LiteralPath $project
 try {
@@ -17,7 +25,22 @@ try {
         Set-Content -LiteralPath $marker -Value $configHash -Encoding Ascii
     }
     $env:CMAKE_BUILD_PARALLEL_LEVEL = '1'
-    # A release APK bundles the JS (runs without Metro) and is signed with the template's debug key: for device tests, not the store.
+    # A release APK bundles the JS (runs without Metro). Both debug and release are signed with JIVO's key when it exists.
+    $signingArgs = @()
+    if (Test-Path -LiteralPath $KeystorePath -PathType Leaf) {
+        $password = $env:JM_ANDROID_KEYSTORE_PASSWORD
+        if (-not $password) {
+            $passwordFile = [System.IO.Path]::ChangeExtension($KeystorePath, '.password.txt')
+            if (-not (Test-Path -LiteralPath $passwordFile -PathType Leaf)) { throw "Keystore $KeystorePath found but no password: set JM_ANDROID_KEYSTORE_PASSWORD or create $passwordFile." }
+            $password = (Get-Content -LiteralPath $passwordFile -Raw).Trim()
+        }
+        foreach ($name in $signingPasswordVariables) { [Environment]::SetEnvironmentVariable($name, $password, 'Process') }
+        $password = $null
+        $signingArgs = @("-Pandroid.injected.signing.store.file=$((Resolve-Path -LiteralPath $KeystorePath).Path)", "-Pandroid.injected.signing.key.alias=$KeyAlias")
+        Write-Output "Signing with $KeystorePath (alias $KeyAlias)."
+    } else {
+        Write-Warning "Keystore $KeystorePath not found: signing with the public React Native template debug key. Production must NOT trust this build for passkeys / app links."
+    }
     $task = if ($Release) { 'app:assembleRelease' } else { 'app:assembleDebug' }
     if ($Release) { $env:NODE_ENV = 'production' } elseif (-not $env:NODE_ENV) { $env:NODE_ENV = 'development' }
     # Generated React Native target names are long even after object hashing.
@@ -32,7 +55,7 @@ try {
     if (-not $mappedDrive) { throw 'No free drive letter is available for the temporary native build cache.' }
     $env:JM_NATIVE_APP_STAGE = "$mappedDrive\.native-build"
     Set-Location -LiteralPath (Join-Path $project 'android')
-    & .\gradlew.bat $task --init-script (Join-Path $PSScriptRoot 'short-cmake-paths.gradle') --no-daemon --no-parallel --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=768m' '-Pkotlin.compiler.execution.strategy=in-process' "-PreactNativeArchitectures=$Architecture" -x lint -x test --console=plain
+    & .\gradlew.bat $task --init-script (Join-Path $PSScriptRoot 'short-cmake-paths.gradle') --no-daemon --no-parallel --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=768m' '-Pkotlin.compiler.execution.strategy=in-process' "-PreactNativeArchitectures=$Architecture" -x lint -x test --console=plain @signingArgs
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     if ($Release) { Write-Output 'Built android/app/build/outputs/apk/release/app-release.apk. Install it with adb install -r, or copy it to the phone.' }
     else { Write-Output 'Built android/app/build/outputs/apk/debug/app-debug.apk. Start the emulator, then run npm.cmd run android:launch.' }
@@ -40,6 +63,7 @@ try {
     $env:CMAKE_BUILD_PARALLEL_LEVEL = $previousCmake
     $env:NODE_ENV = $previousNode
     $env:JM_NATIVE_APP_STAGE = $previousStage
+    foreach ($name in $signingPasswordVariables) { [Environment]::SetEnvironmentVariable($name, $null, 'Process') }
     Pop-Location
     if ($mappedDrive) { & subst.exe $mappedDrive /D }
 }

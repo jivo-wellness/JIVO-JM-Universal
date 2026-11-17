@@ -114,6 +114,36 @@ fields** (and Play Console → App content → App access), never in this reposi
 - Review notes: "JM is an internal app for JIVO employees. Use the demo account above; it has sample chats
   and a sample password vault."
 
+## Signing key (Android)
+
+JM's own key, created 17-Nov-2026 (decision U-030). It is never in this repository, `app.json`,
+`gradle.properties` or git.
+
+- **Where:** `C:\JIVO-keys\jivo-jm-upload.jks` (PKCS12, RSA 4096, valid to 2054, alias `jivo-jm`,
+  `CN=JIVO JM, O=JIVO, C=IN`). The store/key password is only in `C:\JIVO-keys\jivo-jm-upload.password.txt`.
+  Both files are readable by the JIVO user and Administrators only.
+- **Fingerprint:** SHA-256 `68:B6:08:BA:5A:68:5F:7B:BD:51:F7:D0:54:34:B2:19:28:7A:52:0E:A6:FD:B6:B2:8A:30:F2:51:74:97:F5:62`
+  (backend `JM_ANDROID_APP_FINGERPRINTS` / `assetlinks.json`); WebAuthn origin
+  `android:apk-key-hash:aLYIulpoX3u9UffQVDSyGSh6Ug6m_bayijDyUXSX9WI` (backend `JM_WEBAUTHN_ANDROID_ORIGINS`).
+- **Builds:** `scripts\build-android.ps1` signs debug and release APKs with it (`-KeystorePath`, `-KeyAlias`;
+  password from the `.password.txt` next to the keystore or `JM_ANDROID_KEYSTORE_PASSWORD`). Without the
+  keystore it warns and falls back to the public React Native template debug key, which production must not trust.
+- **Back it up now:** copy the `.jks` and the password (separately) to a safe offline place, e.g. an encrypted
+  USB drive in the office safe and the password in the company password vault. Losing the key, or its password,
+  means app updates can no longer be signed: a new app listing (new package name, users reinstall), unless Play
+  App Signing is enabled, in which case Google can reset the upload key.
+- **Play Store:** enrol in Play App Signing at the first upload. This key then becomes the **upload key** and
+  Google signs what users install with its own app-signing key. Copy that key's SHA-256 from Play Console →
+  Test and release → App integrity → App signing, and add it (colon form, and as `android:apk-key-hash:`
+  base64url without padding) to the backend settings next to this one; passkeys and app links on Play installs
+  fail until then. Keep this key's fingerprint too while sideloaded test APKs are in use.
+- **Rotate:** create a new keystore the same way (keytool `-genkeypair`, new random password, `icacls` limited),
+  add its fingerprint to the backend **before** shipping builds signed with it, then build with
+  `-KeystorePath <new.jks>`. A sideloaded APK signed with a different key cannot update the installed app
+  (uninstall first; local data is lost). On Play, request an upload-key reset in Play Console (the app-signing
+  key stays the same, so the backend values for it do not change). Remove the old fingerprint from the backend
+  once no installed build uses it.
+
 ## Open questions
 
 - **Privacy policy:** `https://jivo.in/privacy-policy` is JIVO's website policy. Both stores need the policy

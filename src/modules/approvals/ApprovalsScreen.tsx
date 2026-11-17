@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native'
+import { ActivityIndicator, ScrollView, Text, View, useWindowDimensions } from 'react-native'
 import { Link, type Href } from 'expo-router'
 import { isAxiosError } from 'axios'
 import { errorMessage } from '../../core/api/client'
@@ -7,7 +7,7 @@ import { useResource } from '../../shared/useResource'
 import { SensitiveRequestGuard } from '../../shared/sensitive'
 import { subscribeSensitiveView } from '../../shared/sensitiveLifecycle'
 import { formatDateTime } from '../../shared/utils/format'
-import { Button, Card, EmptyState, Label, Surface, styles, useColors } from '../../ui'
+import { Button, EmptyState, ErrorState, Label, Surface, styles, useColors } from '../../ui'
 import { Icon, type IconName } from '../../components/Icon'
 import { Badge, IconTextButton, PageHeader, PillTabs } from '../../components/AdminUi'
 import { Sheet } from '../../components/Sheet'
@@ -23,6 +23,9 @@ const isStepUpCancel = (e: unknown) => isAxiosError(e) && (e.response?.data as {
  */
 export function ApprovalsScreen() {
   const c = useColors()
+  // Phones: the actions go on their own row under the text (never beside it, where they squeezed the title to a word
+  // per line and drew over it at 360px). Wider screens keep the reference's text | actions row.
+  const wide = useWindowDimensions().width >= 640
   const [filter, setFilter] = useState<ApprovalFilter>('waiting')
   const status = statusFor(filter)
   const load = useCallback(() => listApprovals(status), [status])
@@ -64,26 +67,28 @@ export function ApprovalsScreen() {
     {!!error && <Text accessibilityRole="alert" style={{ color: c.danger, fontFamily: 'Inter_400Regular' }}>{error}</Text>}
     {!!notice && <Text accessibilityLiveRegion="polite" style={{ color: c.primary, fontFamily: 'Inter_500Medium' }}>{notice}</Text>}
     {list.loading && <ActivityIndicator accessibilityLabel="Loading approvals" />}
-    {!!list.error && <Card><Label>{errorMessage(list.error)}</Label><Button title="Retry" variant="secondary" onPress={list.refresh} /></Card>}
+    {!!list.error && <ErrorState message={errorMessage(list.error)} onRetry={list.refresh} />}
     {!list.loading && !list.error && rows.length === 0 && <EmptyState title={emptyTitle(filter)} />}
     <View accessibilityLabel="Approvals" style={{ gap: 12, marginTop: error || notice ? 12 : 0 }}>
-      {rows.map(item => { const key = `${item.kind}-${item.id}`; const kind = KIND_ICON[item.kind] ?? KIND_ICON.admin; const badgeTone = ({ warning: 'warning', success: 'success', danger: 'danger', neutral: 'neutral' } as const)[statusTone(item.status)] ?? 'neutral'; return <Surface key={key} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 12, padding: 16 }}>
+      {rows.map(item => { const key = `${item.kind}-${item.id}`; const kind = KIND_ICON[item.kind] ?? KIND_ICON.admin; const badgeTone = ({ warning: 'warning', success: 'success', danger: 'danger', neutral: 'neutral' } as const)[statusTone(item.status)] ?? 'neutral'; const actions = item.can.decide || item.can.cancel; return <Surface key={key} style={{ flexDirection: wide ? 'row' : 'column', alignItems: wide ? 'flex-start' : 'stretch', gap: 12, padding: 16 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, flex: wide ? 1 : undefined, minWidth: 0 }}>
         <View style={{ marginTop: 2 }}><Icon name={kind.icon} size={20} color={kind.color} /></View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text numberOfLines={1} ellipsizeMode="clip" style={{ fontFamily: 'Inter_500Medium', fontWeight: '500', fontSize: 12, lineHeight: 16, letterSpacing: 0.6, color: c.muted }}>{KIND_LABEL[item.kind]?.toUpperCase() ?? item.kind}</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-            <Text style={{ fontFamily: 'Inter_500Medium', fontWeight: '500', fontSize: 16, lineHeight: 24, color: c.text }}>{item.title}</Text>
-            {!!item.subject && <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 16, lineHeight: 24, color: c.muted }}>· {item.subject}</Text>}
+            <Text style={{ flexShrink: 1, fontFamily: 'Inter_500Medium', fontWeight: '500', fontSize: 16, lineHeight: 24, color: c.text }}>{item.title}</Text>
+            {!!item.subject && <Text style={{ flexShrink: 1, fontFamily: 'Inter_400Regular', fontSize: 16, lineHeight: 24, color: c.muted }}>· {item.subject}</Text>}
             <Badge tone={badgeTone}>{item.status}</Badge>
           </View>
           <Text style={{ marginTop: 2, fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 16, color: c.muted }}>{metaLine(item, formatDateTime)}</Text>
           {!!item.reason && <Text style={{ marginTop: 4, fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20, color: c.text }}>“{item.reason}”</Text>}
           <Link replace href={appHref(item) as Href} accessibilityLabel={`Open ${item.title}`} style={{ marginTop: 4, alignSelf: 'flex-start', fontFamily: 'Inter_500Medium', fontWeight: '500', fontSize: 12, lineHeight: 16, color: c.brand, textDecorationLine: 'none' }}>Open</Link>
         </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        </View>
+        {actions && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, flexShrink: 0, paddingLeft: wide ? 0 : 32 }}>
           {item.can.decide && <><IconTextButton size="sm" icon="check" title="Approve" accessibilityLabel={`Approve ${item.title}`} disabled={!!busy} onPress={() => setConfirming({ item, d: 'approve' })} /><IconTextButton size="sm" icon="x" title="Deny" variant="secondary" accessibilityLabel={`Deny ${item.title}`} disabled={!!busy} onPress={() => setConfirming({ item, d: 'deny' })} /></>}
           {item.can.cancel && <IconTextButton size="sm" title={busy === key ? 'Withdrawing…' : 'Withdraw'} accessibilityLabel="Withdraw" variant="ghost" disabled={!!busy} onPress={() => void act(item, 'cancel')} />}
-        </View>
+        </View>}
       </Surface> })}
     </View>
     <Sheet visible={!!confirming} onClose={() => { if (!busy) setConfirming(null) }}>

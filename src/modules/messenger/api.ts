@@ -25,6 +25,8 @@ export interface Attachment {
   height: number | null
   /** Audio: the recording's length, measured by the recorder. */
   duration_ms?: number | null
+  /** Sent as a sticker (BE-105): drawn without a bubble. Older servers omit it. */
+  sticker?: boolean
   blurhash: string
   thumb_url: string | null
   preview_url: string | null
@@ -137,7 +139,7 @@ export interface MessageWindow {
 
 export type SendMode = 'everyone' | 'selected' | 'admins'
 /** Why the composer is replaced by a notice. */
-export type SendBlock = 'left' | 'company' | 'no_permission' | 'admins_only' | 'selected_only' | 'chat_restricted' | 'peer_inactive'
+export type SendBlock = 'left' | 'company' | 'no_permission' | 'admins_only' | 'selected_only' | 'chat_restricted' | 'peer_inactive' | 'blocked' | 'contact_blocked'
 export type NotifyPreview = 'none' | 'sender' | 'sender_and_text'
 
 export type PreviewMedia = 'photo' | 'video' | 'voice' | 'file' | 'contact' | 'poll' | 'location' | 'event'
@@ -145,6 +147,8 @@ export type PreviewMedia = 'photo' | 'video' | 'voice' | 'file' | 'contact' | 'p
 export interface ConversationItem {
   send_mode: SendMode
   send_block: SendBlock | null
+  /** Direct chats: I blocked this person ("Block contact", BE-108). Never says whether they blocked me. */
+  blocked_by_me?: boolean
   /** This chat's notification preview; null = the person's default. */
   notify_preview: NotifyPreview | null
   id: string
@@ -351,8 +355,16 @@ export interface PersonProfile extends PersonCard {
   email: string
   phone: string | null
   companies: { id: string; company: string; company_name: string; company_color: string; title: string; department: string }[]
+  /** I blocked this person ("Block contact", BE-108). */
+  blocked_by_me?: boolean
 }
 export const getPerson = async (id: string) => (await api.get<PersonProfile>(`/users/${id}/`)).data
+
+// Personal "Block contact" (BE-108, WhatsApp-style). Not the administrator "Block messaging".
+export interface BlockedContact { user: PersonCard; created_at: string }
+export const listBlocks = async () => (await api.get<{ results: BlockedContact[] }>('/blocks/')).data.results
+export const blockContact = async (userId: string) => (await api.post<BlockedContact>('/blocks/', { user_id: userId })).data
+export const unblockContact = async (userId: string) => { await api.delete(`/blocks/${userId}/`) }
 
 // Uploads
 const REJECTED: Record<string, string> = {

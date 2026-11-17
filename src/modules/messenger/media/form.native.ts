@@ -4,5 +4,6 @@ export function uploadForm(asset: PickedFile, purpose: 'attachment' | 'avatar' |
   // React Native's multipart networking accepts a URI descriptor instead of browser File.
   form.append('file', { uri: asset.uri, name: asset.name, type: asset.mime } as unknown as Blob)
   form.append('purpose', purpose)
+  if (asset.sticker && purpose === 'attachment') form.append('sticker', '1')
   return form
 }

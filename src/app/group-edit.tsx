@@ -5,10 +5,9 @@ import { useSession } from '../core/auth/Session'
 import { errorMessage } from '../core/api/client'
 import * as chat from '../modules/messenger/api'
 import { useResource } from '../shared/useResource'
-import { Label, Spinner } from '../ui'
+import { ErrorState, Label, Spinner } from '../ui'
 import { ConversationInfoFrame } from '../components/ConversationInfoFrame'
 import { GroupEditor, MessagingPermissions } from '../components/ConversationDetails'
-import { ConnectionStatus } from '../components/ConnectionStatus'
 import { GroupPhoto } from '../components/GroupPhoto'
 
 function EditForm({ initial, onSaved }: { initial: { detail: chat.ConversationDetail; members: chat.Member[] }; onSaved: () => void }) {
@@ -33,7 +32,7 @@ function Editor({ conversation }: { conversation: string }) {
  const back = () => { if (router.canGoBack()) router.back(); else router.replace({ pathname: '/group-info', params: { conversation } }) }
  return <ConversationInfoFrame page visible title="Edit group" onClose={back}>
   {resource.loading && <Spinner />}
-  {!!resource.error && <ConnectionStatus error={errorMessage(resource.error)} onRetry={resource.refresh} />}
+  {!!resource.error && <ErrorState message={errorMessage(resource.error)} onRetry={resource.refresh} />}
   {resource.value && <EditForm initial={resource.value} onSaved={back} />}
  </ConversationInfoFrame>
 }

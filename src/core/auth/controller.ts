@@ -1,6 +1,13 @@
 import type { Me } from './types'
 import type { LoginResponse } from './security'
-export type SessionState = { status: 'loading' | 'signing-out' | 'anonymous' | 'ready' | 'unreachable'; me: Me | null; error?: string }
+/**
+ * `stale`: `me` is this device's last confirmed profile (U-022), shown while the server is asked; `error` then says why it is not confirmed yet.
+ * `reading`: still `loading` the profile cached on this device (local and fast: the start-up splash covers it, U-031);
+ * a `loading` state without it is waiting for the server.
+ */
+export type SessionState = { status: 'loading' | 'signing-out' | 'anonymous' | 'ready' | 'unreachable'; me: Me | null; error?: string; stale?: boolean; reading?: boolean }
+/** The last confirmed profile, kept on this device so start-up does not wait for the network. */
+export interface SessionCache { read(): Promise<Me | null>; write(me: Me): Promise<void>; clear(): Promise<void> }
 export interface SessionDependencies {
   enabled: boolean; csrf: () => Promise<unknown>; me: () => Promise<Me>
   login: (email: string, password: string) => Promise<LoginResponse>
@@ -8,6 +15,7 @@ export interface SessionDependencies {
   unauthorized: (error: unknown) => boolean; message: (error: unknown) => string
   boundary?: (preserveOutbox: boolean) => void
   now?: () => number
+  cache?: SessionCache
 }
 export class SessionController {
   private state: SessionState = { status: 'loading', me: null }
@@ -33,11 +41,15 @@ export class SessionController {
     timer.unref?.()
   }
   private publish(state: SessionState) { this.cancelExpiry(); this.state = state; this.scheduleExpiry(); this.listeners.forEach(fn => fn()) }
+  private expired(me: Me) { const expiry = this.expiry(me); return expiry !== null && (!Number.isFinite(expiry) || expiry <= this.now()) }
   private accept(me: Me) {
-    const expiry = this.expiry(me)
-    if (expiry !== null && (!Number.isFinite(expiry) || expiry <= this.now())) { this.lose(); return }
+    if (this.expired(me)) { this.lose(); return }
+    // The server answered for a different account than the cached one: end everything bound to the cached account first.
+    if (this.state.stale && this.state.me && this.state.me.id !== me.id) this.advance()
     this.publish({ status: 'ready', me })
+    void this.deps.cache?.write(me).catch(() => undefined)
   }
+  private forget() { void this.deps.cache?.clear().catch(() => undefined) }
   /** Call on foreground too: mobile/hidden-tab timers may have been suspended. */
   checkExpiry = (): boolean => {
     if (this.state.status !== 'ready') return false
@@ -51,15 +63,35 @@ export class SessionController {
   private advance(preserveOutbox = false) { this.cancelExpiry(); this.deps.boundary?.(preserveOutbox); return ++this.generation }
   lose = () => {
     if (this.signingOut) return
+    this.forget()
     this.advance(); this.publish({ status: 'anonymous', me: null })
     this.cleanup = this.cleanup.catch(() => undefined).then(() => this.deps.clear())
     void this.cleanup.catch(() => undefined)
   }
+  /**
+   * Start-up and Retry. With a cached profile the app opens at once (`ready`, `stale`) and the server is asked in the
+   * background: 401 signs out and wipes the device caches, unreachable keeps the cached screens with `error` set.
+   */
   async restore() {
     if (this.signingOut) return
+    // Already showing the cached account: only ask the server again, keep everything bound to it.
+    if (this.state.status === 'ready' && this.state.stale) return this.confirm(this.generation)
     const generation = this.advance(true)
     if (!this.deps.enabled) { this.publish({ status: 'anonymous', me: null }); return }
-    this.publish({ status: 'loading', me: null })
+    this.publish(this.deps.cache ? { status: 'loading', me: null, reading: true } : { status: 'loading', me: null })
+    let cached: Me | null = null
+    try { cached = await this.deps.cache?.read() ?? null } catch { cached = null }
+    if (generation !== this.generation) return
+    if (cached && !this.expired(cached)) this.publish({ status: 'ready', me: cached, stale: true })
+    else {
+      if (cached) this.forget()
+      if (this.deps.cache) this.publish({ status: 'loading', me: null })
+    }
+    return this.confirm(generation)
+  }
+  private async confirm(generation: number) {
+    // Clearing the previous failure lets the provider's reconnect watch start again after the next one.
+    if (this.state.stale && this.state.error) { const next = { ...this.state }; delete next.error; this.publish(next) }
     try {
       await this.cleanup
       await this.deps.csrf()
@@ -68,6 +100,7 @@ export class SessionController {
     } catch (error) {
       if (generation !== this.generation) return
       if (this.deps.unauthorized(error)) this.lose()
+      else if (this.state.status === 'ready' && this.state.stale) this.publish({ ...this.state, error: this.deps.message(error) })
       else this.publish({ status: 'unreachable', me: null, error: this.deps.message(error) })
     }
   }
@@ -91,6 +124,7 @@ export class SessionController {
   logout(): Promise<void> {
     if (this.signingOut) return this.signingOut
     const generation = this.advance()
+    this.forget()
     this.publish({ status: 'signing-out', me: null })
     const pending = (async () => {
       let failure: unknown

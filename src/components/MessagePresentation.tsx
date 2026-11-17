@@ -1,9 +1,11 @@
-import { useState, type ReactNode } from 'react'
+import { createContext, useContext, useState, type ReactNode } from 'react'
 import { Image, Platform, Pressable, Text, View, useWindowDimensions } from 'react-native'
 import { shadow, useColors } from '../ui'
 import { clockTime, dayLabel, formatBytes, sameDay } from '../modules/messenger/lib/text'
 import type { Attachment, DeliveryStatus, ReactionSummary, ReplyPreview } from '../modules/messenger/api'
 import { Icon } from './Icon'
+import { PhoneContactCard } from './PhoneContactCard'
+import { isVCard } from '../modules/messenger/lib/vcard'
 
 import { chatImageLayout } from '../modules/messenger/lib/imageLayout'
 
@@ -11,37 +13,63 @@ const web = Platform.OS === 'web'
 const pointerStyle = web ? ({ cursor: 'pointer' } as object) : null
 
 /** Chat image tile content: the image, or an image icon when there is no URL or it fails to load (never a blank box). */
-function TileImage({ uri, name }: { uri: string | null; name: string }) {
+function TileImage({ uri, name, quiet = false }: { uri: string | null; name: string; quiet?: boolean }) {
   const c = useColors()
   const [failed, setFailed] = useState<string | null>(null)
+  // `quiet`: a video poster; without one the tile stays dark under its play button.
+  if ((!uri || failed === uri) && quiet) return <View style={{ flex: 1 }} />
   if (!uri || failed === uri) return <View accessible accessibilityRole="image" accessibilityLabel={`${name} (preview unavailable)`} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Icon name="image" size={28} color={c.muted} /></View>
   return <Image accessibilityLabel={name} source={{ uri }} onError={() => setFailed(uri)} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
 }
 
 export type MessageDelivery = DeliveryStatus | 'sending' | 'queued' | 'failed' | null
-export function MessageTicks({ status }: { status: MessageDelivery }) {
+export function MessageTicks({ status, onMedia = false }: { status: MessageDelivery; onMedia?: boolean }) {
   const c = useColors()
   if (!status) return null
   const label = status === 'sending' ? 'Sending' : status === 'queued' ? 'Waiting for the network' : status === 'failed' ? 'Not sent' : status[0].toUpperCase() + status.slice(1)
+  const muted = onMedia ? '#ffffff' : c.muted
   return <View accessible accessibilityRole="image" accessibilityLabel={label}>
-    {status === 'sending' || status === 'queued' || status === 'failed' ? <Icon name={status === 'failed' ? 'alert' : 'clock'} size={14} color={status === 'failed' ? c.danger : c.muted} /> : <Image accessible={false} source={status === 'sent' ? require('../../assets/icons/ReceiptSent.png') : require('../../assets/icons/ReceiptDouble.png')} style={{ width: 18, height: 11, tintColor: status === 'read' ? '#0ea5e9' : c.muted }} />}
+    {status === 'sending' || status === 'queued' || status === 'failed' ? <Icon name={status === 'failed' ? 'alert' : 'clock'} size={14} color={status === 'failed' ? (onMedia ? '#fca5a5' : c.danger) : muted} /> : <Image accessible={false} source={status === 'sent' ? require('../../assets/icons/ReceiptSent.png') : require('../../assets/icons/ReceiptDouble.png')} style={{ width: 18, height: 11, tintColor: status === 'read' ? (onMedia ? '#7dd3fc' : '#0ea5e9') : muted }} />}
   </View>
 }
-/** Reference bubble footer: 11px muted "edited · time · ticks", gap 4. */
-export function MessageMeta({ createdAt, edited = false, status = null }: { createdAt: string; edited?: boolean; status?: MessageDelivery }) {
-  const c = useColors()
+/** Reference bubble footer: 11px muted "edited · time · ticks", gap 4. `onMedia`: white, for the pill over a photo. */
+export function MessageMeta({ createdAt, edited = false, status = null, onMedia = false }: { createdAt: string; edited?: boolean; status?: MessageDelivery; onMedia?: boolean }) {
+  const c = useColors(); const color = onMedia ? '#ffffff' : c.muted
   return <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 4 }}>
-    {edited && <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16, color: c.muted }}>edited</Text>}
-    <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16, fontVariant: ['tabular-nums'], color: c.muted }}>{clockTime(createdAt)}</Text>
-    <MessageTicks status={status} />
+    {edited && <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16, color }}>edited</Text>}
+    <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16, fontVariant: ['tabular-nums'], color }}>{clockTime(createdAt)}</Text>
+    <MessageTicks status={status} onMedia={onMedia} />
   </View>
+}
+type Meta = { createdAt: string; edited?: boolean; status?: MessageDelivery }
+/** Set by a MessageBubble drawn with `metaOverlay`: the footer to draw over the last photo/video tile. */
+const OverlayMeta = createContext<Meta | null>(null)
+/**
+ * WhatsApp: a message that is only photos/videos (no caption, no other attachment) shows its time and ticks on a
+ * dark pill over the image's lower right corner instead of a footer line under it.
+ */
+export function overlaysMeta(items: Attachment[]): boolean {
+  return items.length > 0 && items.every(a => a.status === 'ready' && (a.kind === 'image' || a.kind === 'video'))
+}
+/** rgba(0,0,0,0.55) keeps the white 11px time at >= 4.5:1 even over a white photo (blended #737373). */
+function MediaMetaPill({ meta }: { meta: Meta }) {
+  return <View pointerEvents="none" style={{ position: 'absolute', right: 6, bottom: 6, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1, backgroundColor: 'rgba(0,0,0,0.55)' }}><MessageMeta {...meta} onMedia /></View>
+}
+/** Width of the bubble's footer ("edited · 14:05 ✓✓") once measured; 0 until then. */
+const MetaWidth = createContext(0)
+/** First-frame guess for the footer width (11px Inter digits ~6.4px, "edited " ~36px, ticks 18px + 4px gap). */
+export function estimateMetaWidth({ createdAt, edited = false, status = null }: { createdAt: string; edited?: boolean; status?: MessageDelivery }): number {
+  return Math.ceil(clockTime(createdAt).length * 6.4 + (edited ? 40 : 0) + (status ? 22 : 0))
 }
 /**
- * Invisible inline text as wide as the footer. Placed at the end of the message text it reserves room so the
- * absolutely placed footer sits on the last line when it fits (the reference floats it right), else on a new line.
+ * Inline box at the end of the message text, exactly as wide as the footer (measured by the bubble). The footer is
+ * drawn over the bubble's bottom-right corner; this box keeps the last line clear of it, so the time sits on the
+ * last line when it fits and the text gets one more line when it does not (WhatsApp; the reference floats it right).
+ * An inline View (not padding characters) so the room is exact on Android, iOS and web whatever the font metrics.
  */
-export function MessageMetaSpacer({ createdAt, edited = false, status = null }: { createdAt: string; edited?: boolean; status?: MessageDelivery }) {
-  return <Text accessible={false} selectable={false} aria-hidden style={{ fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16, color: 'transparent' }}>{'\u00a0'.repeat(3 + (edited ? 10 : 0) + clockTime(createdAt).length * 2 + (status ? 8 : 0))}</Text>
+export function MessageMetaSpacer(meta: { createdAt: string; edited?: boolean; status?: MessageDelivery }) {
+  const measured = useContext(MetaWidth)
+  return <View accessible={false} importantForAccessibility="no" aria-hidden pointerEvents="none" style={{ width: (measured || estimateMetaWidth(meta)) + 8, height: 2 }} />
 }
 /** Put before the day's first message, outside its left/right bubble alignment. */
 export function MessageDay({ createdAt, previousAt }: { createdAt: string; previousAt?: string }) {
@@ -116,25 +144,35 @@ export function MediaChip({ attachment: a, own, label, onPress }: { attachment: 
 }
 
 /**
- * Reference Attachments: images (one sized to its ratio, several as 136px tiles in a 280px grid), media rows, file chips.
+ * Reference Attachments: images (one sized to its ratio, several as 136px tiles in a 280px grid), media rows, phone
+ * contact cards (ready .vcf files, reference PhoneContactCard), file chips.
  * Thumbnails must be same-origin paths; `origin` is prefixed. Labels keep the existing test hooks.
  */
 export function MessageAttachments({ items, own, origin, onImage, onMedia, onExport }: { items: Attachment[]; own: boolean; origin: string; onImage: (a: Attachment) => void; onMedia: (a: Attachment) => void; onExport: (a: Attachment) => void }) {
   const c = useColors()
-  const images = items.filter(a => a.kind === 'image' && a.status === 'ready')
-  const rest = items.filter(a => !images.includes(a))
+  // Photos and videos share the tile grid (WhatsApp); a video opens the chat's media viewer through `onMedia`.
+  const tiles = items.filter(a => (a.kind === 'image' || a.kind === 'video') && a.status === 'ready')
+  const rest = items.filter(a => !tiles.includes(a))
+  const overlay = useContext(OverlayMeta)
   const safe = (url: string | null) => url && url.startsWith('/') && !url.startsWith('//') ? `${origin}${url}` : null
   const { width } = useWindowDimensions()
-  const layout = chatImageLayout(width, images.length)
-  return <View style={{ gap: 6, marginTop: 2, marginBottom: 0 }}>
-    {images.length > 0 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, width: layout.width, maxWidth: '100%' }}>
-      {images.map(a => { const uri = safe(a.preview_url) || safe(a.thumb_url); const box = layout.box
-        return <Pressable key={a.id} accessibilityRole="button" accessibilityLabel={`View image ${a.name}`} onPress={() => onImage(a)} style={[{ ...box, maxWidth: '100%', overflow: 'hidden', borderRadius: 10, backgroundColor: c.neutral }, pointerStyle]}>
-          <TileImage uri={uri} name={a.name} />
+  const layout = chatImageLayout(width, tiles.length)
+  return <View style={{ gap: 6, marginTop: overlay ? 0 : 2, marginBottom: 0 }}>
+    {tiles.length > 0 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, width: layout.width, maxWidth: '100%' }}>
+      {tiles.map((a, i) => { const uri = safe(a.preview_url) || safe(a.thumb_url); const video = a.kind === 'video'
+        // A lone video without a poster frame is drawn 16:9 rather than as a tall empty photo box.
+        const box = video && !uri && tiles.length === 1 ? { width: layout.box.width, height: Math.round(layout.box.width * 9 / 16) } : layout.box
+        return <Pressable key={a.id} accessibilityRole="button" accessibilityLabel={video ? `Open media ${a.name}` : `View image ${a.name}`} onPress={() => video ? onMedia(a) : onImage(a)} style={[{ ...box, maxWidth: '100%', overflow: 'hidden', borderRadius: overlay ? 8 : 10, backgroundColor: video ? '#0f172a' : c.neutral }, pointerStyle]}>
+          {video ? <><TileImage uri={uri} name={a.name} quiet />
+            <View pointerEvents="none" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, alignItems: 'center', justifyContent: 'center' }}>
+              <View style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' }}><View style={{ marginLeft: 3 }}><Icon name="play" size={22} color="#ffffff" /></View></View>
+            </View></> : <TileImage uri={uri} name={a.name} />}
+          {overlay && rest.length === 0 && i === tiles.length - 1 && <MediaMetaPill meta={overlay} />}
         </Pressable> })}
     </View>}
-    {rest.map(a => a.status === 'ready' && (a.kind === 'audio' || a.kind === 'video')
+    {rest.map(a => a.status === 'ready' && a.kind === 'audio'
       ? <MediaChip key={a.id} attachment={a} own={own} label={`Open media ${a.name}`} onPress={() => onMedia(a)} />
+      : a.status === 'ready' && isVCard(a) ? <PhoneContactCard key={a.id} attachment={a} onExport={() => onExport(a)} />
       : <FileChip key={a.id} attachment={a} label={`Export attachment ${a.name}`} onPress={a.status === 'ready' ? () => onExport(a) : undefined} />)}
   </View>
 }
@@ -153,18 +191,24 @@ export function ReactionPill({ reactions, own, onPress }: { reactions: ReactionS
 }
 
 /**
- * Reference MessageBubble shell: rounded-2xl, 12/6 padding, own bottom-right (other bottom-left) corner 6px,
- * at most 80% / 544px wide. The options chevron appears on hover or keyboard focus (web pointer); phones hold the message.
+ * WhatsApp-style bubble in JM's colours: 10px corners, and the first bubble of a run gets a tail at its top outer
+ * corner (that corner square). Runs sit 2px apart, 8px between runs. At most 80% / 544px wide. The footer
+ * (edited, time, ticks) sits inside the bottom-right corner; text bubbles keep it on the last line via
+ * MessageMetaSpacer. The options chevron appears on hover or keyboard focus (web pointer); phones hold the message.
  * Optional forwarded / reply / reactions props draw the reference's label, quote and reaction pill.
  */
-export function MessageBubble({ own, sender, label, meta, inlineMeta, selected = false, onActions, actionsDisabled = false, chevron = true, forwarded = false, reply = null, onJump, reactions, onReactions, onSender, children }: {
+export function MessageBubble({ own, tail = true, sender, label, meta, inlineMeta, metaOverlay = false, selected = false, onActions, actionsDisabled = false, chevron = true, forwarded = false, reply = null, onJump, reactions, onReactions, onSender, children }: {
   own: boolean
+  /** First message of a run (same sender, same day): draw the tail and the gap above. */
+  tail?: boolean
   /** Group chats only, on the first message of a run. */
   sender?: string | null
   label: string
   meta: { createdAt: string; edited?: boolean; status?: MessageDelivery }
-  /** True when the content ends with MessageMetaSpacer text, so the footer overlays its last line. */
+  /** True when the content ends with MessageMetaSpacer, so the footer overlays its last line. */
   inlineMeta: boolean
+  /** Only photos/videos, no caption (`overlaysMeta`): a 3px frame and the footer as a pill over the last tile. */
+  metaOverlay?: boolean
   selected?: boolean
   onActions?: () => void
   actionsDisabled?: boolean
@@ -181,19 +225,25 @@ export function MessageBubble({ own, sender, label, meta, inlineMeta, selected =
   onSender?: () => void
   children: ReactNode
 }) {
-  const c = useColors(); const [hover, setHover] = useState(false); const [focus, setFocus] = useState(false)
+  const c = useColors(); const [hover, setHover] = useState(false); const [focus, setFocus] = useState(false); const [metaWidth, setMetaWidth] = useState(0)
   const background = own ? c.outgoing : c.incoming
   const pill = !!reactions?.length
+  const footer = <MessageMeta {...meta} />
   return <Pressable accessibilityLabel={label} onLongPress={onActions} delayLongPress={400} onHoverIn={() => setHover(true)} onHoverOut={() => setHover(false)}
     accessibilityActions={onActions ? [{ name: 'longpress', label: 'Message actions' }] : undefined} onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'longpress') onActions?.() }}
-    style={[{ flexDirection: 'row', justifyContent: own ? 'flex-end' : 'flex-start', paddingHorizontal: 12, paddingTop: 2, paddingBottom: pill ? 20 : 2, backgroundColor: selected ? c.successSoft : 'transparent' }, web ? ({ cursor: 'auto' } as object) : null]}>
+    style={[{ flexDirection: 'row', justifyContent: own ? 'flex-end' : 'flex-start', paddingHorizontal: 14, paddingTop: tail ? 6 : 1, paddingBottom: pill ? 20 : 1, backgroundColor: selected ? c.successSoft : 'transparent' }, web ? ({ cursor: 'auto' } as object) : null]}>
     <View style={{ maxWidth: '80%' }}>
-      <View style={{ maxWidth: 544, borderRadius: 16, borderBottomRightRadius: own ? 6 : 16, borderBottomLeftRadius: own ? 16 : 6, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: background, boxShadow: shadow.sm }}>
-        {!!sender && <Text numberOfLines={1} accessibilityRole={onSender ? 'button' : undefined} onPress={onSender} style={[{ color: c.brand, fontFamily: 'Inter_600SemiBold', fontSize: 12, lineHeight: 16, marginBottom: 2 }, onSender ? pointerStyle : null]}>{sender}</Text>}
-        {forwarded && <ForwardedLabel />}
-        {reply && <ReplyQuote reply={reply} own={own} onJump={onJump} />}
-        {children}
-        {inlineMeta ? <View style={{ position: 'absolute', right: 12, bottom: 5 }}><MessageMeta {...meta} /></View> : <View style={{ marginTop: 2 }}><MessageMeta {...meta} /></View>}
+      <View style={{ maxWidth: 544, minWidth: inlineMeta || metaOverlay ? undefined : metaWidth + 18, borderRadius: 10, ...(tail ? own ? { borderTopRightRadius: 0 } : { borderTopLeftRadius: 0 } : {}), ...(metaOverlay ? { padding: 3 } : { paddingHorizontal: 9, paddingTop: 5, paddingBottom: 6 }), backgroundColor: background, boxShadow: shadow.sm }}>
+        {tail && <View accessible={false} pointerEvents="none" style={{ position: 'absolute', top: 0, width: 0, height: 0, borderTopWidth: 11, borderTopColor: background, ...(own ? { right: -8, borderRightWidth: 8, borderRightColor: 'transparent' } : { left: -8, borderLeftWidth: 8, borderLeftColor: 'transparent' }) }} />}
+        {(!!sender || forwarded || !!reply) && <View style={metaOverlay ? { paddingHorizontal: 6, paddingTop: 2, paddingBottom: 3 } : undefined}>
+          {!!sender && <Text numberOfLines={1} accessibilityRole={onSender ? 'button' : undefined} onPress={onSender} style={[{ color: c.brand, fontFamily: 'Inter_600SemiBold', fontSize: 13, lineHeight: 18, marginBottom: 1 }, onSender ? pointerStyle : null]}>{sender}</Text>}
+          {forwarded && <ForwardedLabel />}
+          {reply && <ReplyQuote reply={reply} own={own} onJump={onJump} />}
+        </View>}
+        <MetaWidth.Provider value={metaWidth}><OverlayMeta.Provider value={metaOverlay ? meta : null}>{children}</OverlayMeta.Provider></MetaWidth.Provider>
+        {metaOverlay ? null : inlineMeta
+          ? <View onLayout={e => { const w = Math.ceil(e.nativeEvent.layout.width); if (w !== metaWidth) setMetaWidth(w) }} style={{ position: 'absolute', right: 9, bottom: 4 }}>{footer}</View>
+          : <View onLayout={e => { const w = Math.ceil(e.nativeEvent.layout.width); if (w !== metaWidth) setMetaWidth(w) }} style={{ alignSelf: 'flex-end', marginTop: 2, marginBottom: -2 }}>{footer}</View>}
         {web && chevron && onActions && <Pressable accessibilityRole="button" accessibilityLabel="Message actions" disabled={actionsDisabled} onPress={onActions} onFocus={() => setFocus(true)} onBlur={() => setFocus(false)}
           style={[{ position: 'absolute', right: 4, top: 4, zIndex: 10, padding: 2, borderRadius: 999, backgroundColor: background, opacity: hover || focus ? 1 : 0 }, pointerStyle]}>
           <Icon name="down" size={16} color={c.muted} />
