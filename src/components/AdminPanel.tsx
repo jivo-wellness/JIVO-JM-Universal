@@ -1,4 +1,3 @@
-import { SoftwareTools } from './SoftwareTools'
 import { approvalConsequence } from '../modules/admin/approvalReview'
 import { PersonDetail } from './AdminPerson'
 import { CreatePerson, GroupManagement, SecurityPolicyPanel, useAdminOperation, AdminFeedback } from './AdminManagement'
@@ -230,17 +229,17 @@ function Approvals() {
   </View>
 }
 export function AdminPanel({ initialTab, initialUser }: { initialTab?: string; initialUser?: string }) {
-  const router = useRouter(); const { me } = useSession(); const [tab, setTab] = useState<'people' | 'companies' | 'groups' | 'approvals' | 'security' | 'tools'>(initialTab === 'tools' || initialTab === 'companies' || initialTab === 'groups' || initialTab === 'approvals' || initialTab === 'security' ? initialTab : 'people')
+  const router = useRouter(); const { me } = useSession(); const [tab, setTab] = useState<'people' | 'companies' | 'groups' | 'approvals' | 'security'>(initialTab === 'companies' || initialTab === 'groups' || initialTab === 'approvals' || initialTab === 'security' ? initialTab : 'people')
   const managesUsers = me?.capabilities.includes('ADMIN_USERS') ?? false; const wide = useWindowDimensions().width >= 768; const [personOpen, setPersonOpen] = useState(!!initialUser)
   if (!managesUsers && !me?.capabilities.includes('ADMIN_AUDIT')) return <EmptyState title="Administration" description="Administration access is not enabled for your account." action={<Button title="Back to home" variant="secondary" onPress={() => router.replace('/home')} />} />
   const currentTab = managesUsers ? tab : 'groups'
-  const sections = (managesUsers ? [['people', 'People'], ['groups', 'Permission groups'], ['security', 'Security'], ['tools', 'Software tools']] as const : [['groups', 'Permission groups']] as const) as readonly (readonly ['people' | 'groups' | 'security' | 'tools', string])[]
+  const sections = (managesUsers ? [['people', 'People'], ['groups', 'Permission groups'], ['security', 'Security']] as const : [['groups', 'Permission groups']] as const) as readonly (readonly ['people' | 'groups' | 'security', string])[]
   const header = currentTab === 'companies' ? 'Companies' : currentTab === 'approvals' ? 'Approvals' : null
   // Reference: each section is its own page reached from the rail; phones have no rail, so a pill switcher stands in.
   return <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.page, { gap: 0 }]}>
     {!wide && sections.length > 1 && !(currentTab === 'people' && personOpen) && <View style={{ marginBottom: 16 }}><PillTabs horizontal label="Administration" value={currentTab as 'people'} options={sections} onChange={setTab} /></View>}
     {!!header && <PageHeader title={header} />}
     {!!header && !wide && <Label large>{header}</Label>}
-    <View style={{ gap: currentTab === 'people' ? 0 : 12 }}>{currentTab === 'people' ? <People initialUser={initialUser} onPerson={setPersonOpen} /> : currentTab === 'companies' ? <Companies /> : currentTab === 'groups' ? <Groups /> : currentTab === 'security' ? <SecurityPolicyPanel /> : currentTab === 'tools' ? <SoftwareTools manage /> : <Approvals />}</View>
+    <View style={{ gap: currentTab === 'people' ? 0 : 12 }}>{currentTab === 'people' ? <People initialUser={initialUser} onPerson={setPersonOpen} /> : currentTab === 'companies' ? <Companies /> : currentTab === 'groups' ? <Groups /> : currentTab === 'security' ? <SecurityPolicyPanel /> : <Approvals />}</View>
   </ScrollView>
 }

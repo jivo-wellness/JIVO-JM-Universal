@@ -10,7 +10,8 @@ export const queuedMedia = {
  async save(owner: string, client: string, key: string, file: PickedFile): Promise<QueuedMedia> {
   if (file.size + (root.exists ? root.size ?? 0 : 0) > 500 * 1024 * 1024) throw Error('Offline files are limited to 500 MB. Send or discard queued files first.')
   const dir = messageDir(owner, client); dir.create({ intermediates: true, idempotent: true })
-  const target = new File(dir, segment(key)); new File(file.uri).copy(target)
+  // expo-file-system 58's copy is asynchronous: wait for it, so the source (a share or picker copy) can go right after.
+  const target = new File(dir, segment(key)); await new File(file.uri).copy(target)
   return { key, name: file.name, mime: file.mime, size: target.size, ...(file.sticker ? { sticker: true } : {}) }
  },
  async open(owner: string, client: string, media: QueuedMedia): Promise<PickedFile> {

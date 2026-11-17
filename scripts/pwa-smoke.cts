@@ -38,6 +38,12 @@ async function main() {
       if (i === 99) throw Error(`Preview did not start: ${logs}`)
       await new Promise(resolve => setTimeout(resolve, 100))
     }
+    // Without the service worker (first visit) the share POST reaches the server: it must redirect to the share page.
+    const direct = await fetch(origin + '/share-target', { method: 'POST', body: new URLSearchParams({ text: 'x' }), redirect: 'manual' })
+    assert.equal(direct.status, 303)
+    assert.equal(direct.headers.get('location'), '/share?shareError=retry')
+    assert.equal((await fetch(origin + '/share')).status, 200)
+    checks.push('Server answers a share POST that bypassed the worker with 303 to /share, and serves /share as an app route')
     browser = await chromium.launch({ channel: 'msedge', headless: true })
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'allow' })
     const page = await context.newPage()
@@ -61,27 +67,44 @@ async function main() {
       const form = new FormData(); form.set('title', 'Incoming share fixture'); form.set('text', 'Review before sending'); form.append('files', new File(['fixture'], 'incoming-fixture.txt', { type: 'text/plain' }))
       const response = await fetch('/share-target', { method: 'POST', body: form })
       const db = await new Promise<IDBDatabase>((resolve, reject) => { const open = indexedDB.open('jm-incoming-share-v1', 1); open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error) })
-      const record = await new Promise<{ id: string; owner: string | null; caption: string; files: File[] }>((resolve, reject) => { const read = db.transaction('pending').objectStore('pending').get('incoming'); read.onsuccess = () => resolve(read.result); read.onerror = () => reject(read.error) })
+      const record = await new Promise<{ id: string; owner: string | null; text: string; dropped: number; files: File[] }>((resolve, reject) => { const read = db.transaction('pending').objectStore('pending').get('incoming'); read.onsuccess = () => resolve(read.result); read.onerror = () => reject(read.error) })
       db.close()
-      return { ok: response.ok, id: record.id, owner: record.owner, caption: record.caption, files: record.files.map(file => ({ name: file.name, size: file.size })) }
+      return { ok: response.ok, path: new URL(response.url).pathname + new URL(response.url).search, id: record.id, owner: record.owner, text: record.text, dropped: record.dropped, files: record.files.map(file => ({ name: file.name, size: file.size, type: file.type })) }
     })
     assert.equal(shared.ok, true)
+    assert.equal(shared.path, '/share')
     assert.equal(shared.owner, null)
-    assert.equal(shared.caption, 'Incoming share fixture\nReview before sending')
-    assert.deepEqual(shared.files, [{ name: 'incoming-fixture.txt', size: 7 }])
-    const protectedExisting = await page.evaluate(async () => {
-      const form = new FormData(); form.set('text', 'Must not overwrite a pending reviewed share')
+    assert.equal(shared.text, 'Incoming share fixture\nReview before sending')
+    assert.equal(shared.dropped, 0)
+    assert.deepEqual(shared.files, [{ name: 'incoming-fixture.txt', size: 7, type: 'text/plain' }])
+    // As in WhatsApp, the newest share is the one JM opens with: a second share replaces the first.
+    const replaced = await page.evaluate(async () => {
+      const form = new FormData(); form.set('url', 'https://example.invalid/newer'); for (let n = 0; n < 12; n++) form.append('files', new File([`photo ${n}`], `photo-${n}.jpg`, { type: 'image/jpeg' }))
       const response = await fetch('/share-target', { method: 'POST', body: form })
       const db = await new Promise<IDBDatabase>(resolve => { const open = indexedDB.open('jm-incoming-share-v1', 1); open.onsuccess = () => resolve(open.result) })
-      const record = await new Promise<{ id: string }>(resolve => { const read = db.transaction('pending').objectStore('pending').get('incoming'); read.onsuccess = () => resolve(read.result) })
-      await new Promise<void>(resolve => { const transaction = db.transaction('pending', 'readwrite'); transaction.objectStore('pending').delete('incoming'); transaction.oncomplete = () => resolve() }); db.close()
-      return { id: record.id, rejected: response.url.includes('shareError=retry') }
+      const record = await new Promise<{ id: string; text: string; dropped: number; files: File[] }>(resolve => { const read = db.transaction('pending').objectStore('pending').get('incoming'); read.onsuccess = () => resolve(read.result) })
+      return { id: record.id, text: record.text, files: record.files.length, dropped: record.dropped, error: response.url.includes('shareError') }
     })
-    assert.equal(protectedExisting.id, shared.id)
-    assert.equal(protectedExisting.rejected, true)
+    assert.notEqual(replaced.id, shared.id)
+    assert.deepEqual({ text: replaced.text, files: replaced.files, dropped: replaced.dropped, error: replaced.error }, { text: 'https://example.invalid/newer', files: 10, dropped: 2, error: false })
+    // A sign-out bumps the boundary and clears the stash; the share page then has nothing to show.
+    const signedOut = await page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>(resolve => { const open = indexedDB.open('jm-incoming-share-v1', 1); open.onsuccess = () => resolve(open.result) })
+      await new Promise<void>(resolve => { const transaction = db.transaction('pending', 'readwrite'); const store = transaction.objectStore('pending'); store.delete('incoming'); store.put(1, 'boundary'); transaction.oncomplete = () => resolve() })
+      const record = await new Promise<unknown>(resolve => { const read = db.transaction('pending').objectStore('pending').get('incoming'); read.onsuccess = () => resolve(read.result) })
+      db.close(); return record === undefined
+    })
+    assert.equal(signedOut, true)
     const oversized = await page.evaluate(async () => { const form = new FormData(); form.set('text', 'x'.repeat(4001)); const response = await fetch('/share-target', { method: 'POST', body: form }); return response.url.includes('shareError=limit') })
     assert.equal(oversized, true)
-    checks.push('Service worker accepts bounded incoming multipart shares into separate IndexedDB for review, rejects overwrite and oversized text')
+    const empty = await page.evaluate(async () => { const form = new FormData(); form.set('text', '  '); const response = await fetch('/share-target', { method: 'POST', body: form }); return response.url.includes('shareError=empty') })
+    assert.equal(empty, true)
+    const manifestShare = await page.evaluate(async () => (await (await fetch('/manifest.webmanifest')).json()).share_target as { action: string; method: string; enctype: string; params: { files: { accept: string[] }[] } })
+    assert.deepEqual([manifestShare.action, manifestShare.method, manifestShare.enctype], ['/share-target', 'POST', 'multipart/form-data'])
+    for (const type of ['image/*', 'video/*', 'audio/*', 'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']) assert.ok(manifestShare.params.files[0].accept.includes(type), type)
+    const sharePage = await page.evaluate(async () => (await fetch('/share?shareError=limit', { headers: { accept: 'text/html' } })).status)
+    assert.equal(sharePage, 200)
+    checks.push('Service worker takes multipart shares (text, link, up to 10 files; the newest replaces an older one) into separate IndexedDB, redirects to /share, refuses oversized text and empty shares; manifest share_target lists media and office types')
     const privateValue = await page.evaluate(async () => (await fetch('/api/pwa-private-probe')).json())
     assert.equal(privateValue.private, 'must-never-enter-cache-storage')
     assert.ok(requests.includes('/api/pwa-private-probe'))

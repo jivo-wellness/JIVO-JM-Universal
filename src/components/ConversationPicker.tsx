@@ -24,7 +24,7 @@ function useDebounced(value: string, ms = 300) {
 
 /**
  * Reference NewChatDialog + PeoplePicker as a full-screen page, laid out like WhatsApp's "Select contact": a header
- * with Back, the title and Search; "New group" and "Message yourself" rows; then everyone in the JM directory (server
+ * with Back, the title and Search; "New group"; then the people list, starting with yourself ("Message yourself"), then everyone in the JM directory (server
  * order: by name) with photo, name and email · company, loading more on scroll. "New group" is the same page with the
  * group name, chosen members and Create group.
  */
@@ -70,10 +70,6 @@ export function ConversationPicker({ groupAllowed, onChoose, onClose }: { groupA
   </Pressable>
   const header = <View>
     {!group && !searching && groupAllowed && actionRow('New group', 'users', () => { setGroup(true); setError('') })}
-    {self && <Pressable accessibilityRole="button" accessibilityLabel={`Chat with ${self.name} (You)`} disabled={busy} onPress={() => choose(self)} style={state => rowStyle(state, false, busy)}>
-      <ChatAvatar name={self.name} seed={self.id} uri={mediaUrl(self.avatar_url, origin)} size={48} />
-      <View style={{ flex: 1, minWidth: 0 }}><Text numberOfLines={1} style={nameText}>{self.name} (You)</Text><Text numberOfLines={1} style={subText}>Message yourself</Text></View>
-    </Pressable>}
     {group && <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 12 }}>
       <Field label="Group name" value={title} onChangeText={setTitle} maxLength={100} placeholder="e.g. Plant Ops — Ludhiana" />
       {members.length > 0 && <View accessibilityLabel="Chosen members" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
@@ -84,7 +80,12 @@ export function ConversationPicker({ groupAllowed, onChoose, onClose }: { groupA
       </View>}
     </View>}
     {!!error && <Text accessibilityRole="alert" style={{ paddingHorizontal: 16, paddingTop: 8, color: c.danger, fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20 }}>{error}</Text>}
-    {(people.length > 0 || page.loading) && section(query ? 'Search results' : 'People on JM')}
+    {(people.length > 0 || page.loading || !!self) && section(query ? 'Search results' : 'People on JM')}
+    {/* You are the first row of the people list, like WhatsApp's "Message yourself". */}
+    {self && <Pressable accessibilityRole="button" accessibilityLabel={`Chat with ${self.name} (You)`} disabled={busy} onPress={() => choose(self)} style={state => rowStyle(state, false, busy)}>
+      <ChatAvatar name={self.name} seed={self.id} uri={mediaUrl(self.avatar_url, origin)} size={48} />
+      <View style={{ flex: 1, minWidth: 0 }}><Text numberOfLines={1} style={nameText}>{self.name} (You)</Text><Text numberOfLines={1} style={subText}>Message yourself</Text></View>
+    </Pressable>}
   </View>
   const empty = page.loading ? <ActivityIndicator style={{ marginTop: 24 }} color={c.brand} accessibilityLabel="Loading people" />
     : page.error ? <View style={{ paddingHorizontal: 16 }}><ErrorState message={page.error} onRetry={() => void page.refresh()} /></View>

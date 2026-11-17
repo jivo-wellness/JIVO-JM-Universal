@@ -1,100 +1,132 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SharePayload } from 'expo-sharing'
-import type { IncomingShare } from './model'
-import { SHARE_TTL } from './model'
 
-const fixture = vi.hoisted(() => ({
-  raw: [] as SharePayload[], stored: null as string | null,
-  resolve: vi.fn(async () => []), clear: vi.fn(),
-  digest: vi.fn(async (_algorithm: string, value: string) => `hash:${value}`),
-  read: vi.fn<() => Promise<string | null>>(),
+const fx = vi.hoisted(() => ({
+  raw: [] as SharePayload[],
+  disk: new Map<string, string>(),
+  dirs: new Set<string>(),
+  providers: new Map<string, { name: string; data: string; type: string; size?: number }>(),
+  uuid: 0,
+  clear: { calls: 0 },
 }))
-vi.mock('expo-sharing', () => ({
-  getSharedPayloads: () => fixture.raw,
-  clearSharedPayloads: () => { fixture.clear(); fixture.raw = [] },
-  getResolvedSharedPayloadsAsync: fixture.resolve,
-}))
-vi.mock('expo-crypto', () => ({ randomUUID: () => 'version', CryptoDigestAlgorithm: { SHA256: 'sha256' }, digestStringAsync: fixture.digest }))
-vi.mock('expo-secure-store', () => ({ WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'unlocked', getItemAsync: vi.fn(), setItemAsync: vi.fn(), deleteItemAsync: vi.fn() }))
-vi.mock('expo-file-system', () => ({ File: class { size = 10; name = 'original.png' } }))
-vi.mock('../../core/storage/secureSnapshot', () => ({ SecureSnapshot: class {
-  read = fixture.read
-  async write(value: string) { fixture.stored = value }
-  async clear() { fixture.stored = null }
-} }))
-
-const raw = (value: string): SharePayload[] => [{ shareType: 'text', value }]
-const id = (payload: SharePayload[]) => `hash:${JSON.stringify(payload)}`
-const partial = (): IncomingShare => ({
-  id: id(raw('first')), owner: 'alice', at: Date.now(), caption: 'first',
-  files: [{ uri: 'content://original/1', name: 'original.png', size: 10, mime: 'image/png' }],
-  plan: { caption: 'first', jobs: [
-    { conversation: 'one', title: 'One', clientId: 'stable-one', uploadKeys: ['upload-one'], uploadIds: ['uploaded-one'], sent: true },
-    { conversation: 'two', title: 'Two', clientId: 'stable-two', uploadKeys: ['upload-two'], uploadIds: ['uploaded-two'], sent: false },
-  ] },
+vi.mock('expo-sharing', () => ({ getSharedPayloads: () => fx.raw, clearSharedPayloads: () => { fx.clear.calls++; fx.raw = [] } }))
+vi.mock('expo-crypto', () => ({ randomUUID: () => `u${++fx.uuid}`, CryptoDigestAlgorithm: { SHA256: 'sha256' }, digestStringAsync: async (_a: string, value: string) => 'h' + value.length + ':' + value.slice(0, 40) }))
+vi.mock('expo-file-system', () => {
+  const base = (uri: string) => uri.replace(/\/$/, '').split('/').pop() ?? ''
+  class Directory {
+    uri: string
+    constructor(parent: { uri: string } | string, name?: string) { this.uri = (typeof parent === 'string' ? parent : parent.uri + name) + '/' }
+    get name() { return base(this.uri) }
+    get exists() { return fx.dirs.has(this.uri) || [...fx.disk.keys()].some(key => key.startsWith(this.uri)) }
+    create() { fx.dirs.add(this.uri) }
+    delete() { for (const key of [...fx.disk.keys()]) if (key.startsWith(this.uri)) fx.disk.delete(key); for (const dir of [...fx.dirs]) if (dir.startsWith(this.uri)) fx.dirs.delete(dir) }
+    list() {
+      const names = new Map<string, Directory | File>()
+      for (const key of fx.disk.keys()) if (key.startsWith(this.uri)) { const rest = key.slice(this.uri.length); const [head, ...tail] = rest.split('/'); names.set(head, tail.length ? new Directory(this, head) : new File(this, head)) }
+      for (const dir of fx.dirs) if (dir !== this.uri && dir.startsWith(this.uri)) { const head = dir.slice(this.uri.length).split('/')[0]; if (!names.has(head)) names.set(head, new Directory(this, head)) }
+      return [...names.values()]
+    }
+  }
+  class File {
+    uri: string
+    constructor(parent: { uri: string } | string, name?: string) { this.uri = typeof parent === 'string' ? parent : parent.uri + name }
+    get name() { return base(this.uri) }
+    get parentDirectory() { return new Directory(this.uri.slice(0, this.uri.lastIndexOf('/'))) }
+    get exists() { return fx.disk.has(this.uri) || fx.providers.has(this.uri) }
+    get size() { const p = fx.providers.get(this.uri); return p ? p.size ?? p.data.length : (fx.disk.get(this.uri) ?? '').length }
+    get type() { return fx.providers.get(this.uri)?.type ?? '' }
+    async copy(to: Directory | File) {
+      const p = fx.providers.get(this.uri); if (!p) throw Error('Permission denied')
+      fx.disk.set(to instanceof Directory ? to.uri + p.name : to.uri, p.data)
+    }
+    async text() { return fx.disk.get(this.uri) ?? '' }
+    async write(value: string) { fx.disk.set(this.uri, value) }
+    async move(to: File) { fx.disk.set(to.uri, fx.disk.get(this.uri) ?? ''); fx.disk.delete(this.uri); this.uri = to.uri }
+    delete() { fx.disk.delete(this.uri) }
+  }
+  return { Paths: { cache: { uri: 'file:///cache/' } }, Directory, File }
 })
-beforeEach(() => {
-  vi.resetModules(); vi.clearAllMocks()
-  fixture.raw = []; fixture.stored = null
-  fixture.read.mockImplementation(async () => fixture.stored)
-  fixture.digest.mockImplementation(async (_algorithm, value) => `hash:${value}`)
-})
 
-describe('native incoming share slot and durable retry plan', () => {
-  it('preserves a partially sent plan when another ACTION_SEND replaces the OS payload', async () => {
-    const previous = partial(); fixture.stored = JSON.stringify(previous); fixture.raw = raw('second')
-    const { incomingStorage } = await import('./storage.native')
-    expect(await incomingStorage.read('alice')).toEqual(previous)
-    expect(JSON.parse(fixture.stored!)).toEqual(previous)
-    expect(fixture.resolve).not.toHaveBeenCalled(); expect(fixture.clear).not.toHaveBeenCalled()
-    await incomingStorage.clear(previous.id)
-    expect(fixture.raw).toEqual(raw('second'))
-    expect(await incomingStorage.read('alice')).toMatchObject({ id: id(raw('second')), caption: 'second', owner: 'alice' })
+const provide = (uri: string, name: string, type: string, data = 'data', size?: number) => fx.providers.set(uri, { name, type, data, size })
+const shareFiles = () => [...fx.disk.keys()].filter(key => key.startsWith('file:///cache/jm-share/share-')).sort()
+async function load() { vi.resetModules(); return (await import('./storage.native')).incomingStorage }
+
+beforeEach(() => { fx.raw = []; fx.disk.clear(); fx.dirs.clear(); fx.providers.clear(); fx.uuid = 0; fx.clear.calls = 0 })
+
+describe('native share intake (Android content:// URIs)', () => {
+  it('copies shared files into the app cache before sign-in, keeps them for whoever signs in, and clears the intent', async () => {
+    provide('content://media/1', 'IMG_1.jpg', 'image/jpeg'); provide('content://docs/2', 'Report.pdf', 'application/pdf')
+    fx.raw = [{ shareType: 'image', value: 'content://media/1', mimeType: 'image/jpeg' }, { shareType: 'file', value: 'content://docs/2', mimeType: 'application/pdf' }]
+    const storage = await load()
+    expect(await storage.capture()).toBe(true)
+    expect(fx.raw).toEqual([]); expect(await storage.hasPending()).toBe(true)
+    expect(shareFiles()).toEqual(['file:///cache/jm-share/share-u1/0/IMG_1.jpg', 'file:///cache/jm-share/share-u1/1/Report.pdf'])
+    const share = await storage.read('alice')
+    expect(share).toMatchObject({ owner: 'alice', text: '', notice: '' })
+    expect(share?.files.map(f => [f.name, f.mime, f.uri])).toEqual([['IMG_1.jpg', 'image/jpeg', 'file:///cache/jm-share/share-u1/0/IMG_1.jpg'], ['Report.pdf', 'application/pdf', 'file:///cache/jm-share/share-u1/1/Report.pdf']])
+    expect(await storage.read('bob')).toBeNull()
+    expect(await storage.hasPending()).toBe(false); expect(shareFiles()).toEqual([])
   })
-  it('restores a durable plan after restart even when Expo has no pending payload', async () => {
-    const previous = partial(); fixture.stored = JSON.stringify(previous)
-    const { incomingStorage } = await import('./storage.native')
-    expect(await incomingStorage.hasPending()).toBe(true)
-    expect(await incomingStorage.read('alice')).toEqual(previous)
+  it('takes text and links without touching the network or the file system', async () => {
+    fx.raw = [{ shareType: 'url', value: 'https://a.test/page' }]
+    const storage = await load()
+    await storage.capture()
+    expect(await storage.read('alice')).toMatchObject({ text: 'https://a.test/page', files: [] })
   })
-  it('accepts the newer intent after the previous review expires without renewing the old plan', async () => {
-    const previous = { ...partial(), at: Date.now() - SHARE_TTL - 1 }
-    fixture.stored = JSON.stringify(previous); fixture.raw = raw('second')
-    const { incomingStorage } = await import('./storage.native')
-    const current = await incomingStorage.read('alice')
-    expect(current).toMatchObject({ id: id(raw('second')), caption: 'second' }); expect(current?.plan).toBeUndefined()
+  it('does not take the same intent twice, and a new share replaces the previous one and its files', async () => {
+    provide('content://media/1', 'a.jpg', 'image/jpeg')
+    const first: SharePayload[] = [{ shareType: 'image', value: 'content://media/1', mimeType: 'image/jpeg' }]
+    fx.raw = first
+    const storage = await load()
+    expect(await storage.capture()).toBe(true)
+    fx.raw = first
+    expect(await storage.capture()).toBe(false)
+    fx.raw = [{ shareType: 'text', value: 'Newer' }]
+    expect(await storage.capture()).toBe(true)
+    expect(shareFiles()).toEqual([])
+    expect(await storage.read('alice')).toMatchObject({ text: 'Newer', files: [] })
   })
-  it('clears an expired same intent rather than granting it a fresh lifetime', async () => {
-    fixture.stored = JSON.stringify({ ...partial(), at: Date.now() - SHARE_TTL - 1 }); fixture.raw = raw('first')
-    const { incomingStorage } = await import('./storage.native')
-    expect(await incomingStorage.read('alice')).toBeNull()
-    expect(fixture.stored).toBeNull(); expect(fixture.raw).toEqual([])
+  it('refuses unknown types with a clear message and keeps none of their bytes', async () => {
+    provide('content://x/1', 'tool.apk', 'application/vnd.android.package-archive')
+    fx.raw = [{ shareType: 'file', value: 'content://x/1', mimeType: 'application/vnd.android.package-archive' }]
+    const storage = await load()
+    await storage.capture()
+    expect(await storage.read('alice')).toMatchObject({ files: [], error: "tool.apk: apps and programs can't be sent in JM." })
+    expect(shareFiles()).toEqual([])
   })
-  it('discards both the protected review and raw intent when the account differs', async () => {
-    fixture.stored = JSON.stringify(partial()); fixture.raw = raw('second')
-    const { incomingStorage } = await import('./storage.native')
-    expect(await incomingStorage.read('bob')).toBeNull()
-    expect(fixture.stored).toBeNull(); expect(fixture.raw).toEqual([])
+  it('leaves out a file over 500 MB without copying it, and files past the tenth', async () => {
+    provide('content://v/big', 'big.mp4', 'video/mp4', 'x', 600 * 1024 * 1024)
+    for (let i = 0; i < 11; i++) provide(`content://p/${i}`, `p${i}.jpg`, 'image/jpeg')
+    fx.raw = [{ shareType: 'video', value: 'content://v/big' }, ...Array.from({ length: 11 }, (_, i) => ({ shareType: 'image' as const, value: `content://p/${i}` }))]
+    const storage = await load()
+    await storage.capture()
+    const share = await storage.read('alice')
+    expect(share?.files.map(f => f.name)).toEqual(['p0.jpg', 'p1.jpg', 'p2.jpg', 'p3.jpg', 'p4.jpg', 'p5.jpg', 'p6.jpg', 'p7.jpg', 'p8.jpg'])
+    expect(share?.notice).toMatch(/larger than 500 MB.*Up to 10 files per message: 2 more were left out\./)
   })
-  it('does not erase a newer intent arriving while a matching discard is being hashed', async () => {
-    const previous = partial(); fixture.stored = JSON.stringify(previous); fixture.raw = raw('first')
-    fixture.digest.mockImplementation(async (_algorithm, value) => { fixture.raw = raw('second'); return `hash:${value}` })
-    const { incomingStorage } = await import('./storage.native')
-    await incomingStorage.clear(previous.id)
-    expect(fixture.stored).toBeNull(); expect(fixture.raw).toEqual(raw('second')); expect(fixture.clear).not.toHaveBeenCalled()
+  it('says so when the provider no longer lets JM read the file', async () => {
+    fx.raw = [{ shareType: 'image', value: 'content://revoked/1', mimeType: 'image/jpeg' }]
+    const storage = await load()
+    await storage.capture()
+    expect(await storage.read('alice')).toMatchObject({ error: 'JM could not read a shared file. Share it again from the other app.' })
   })
-  it('rejects an old save after explicit account-boundary clearing', async () => {
-    const previous = partial(); fixture.stored = JSON.stringify(previous); fixture.raw = raw('second')
-    const { incomingStorage } = await import('./storage.native')
-    await incomingStorage.clear()
-    await expect(incomingStorage.save(previous)).rejects.toThrow(/previous session/)
-    expect(await incomingStorage.hasPending()).toBe(false)
+  it('deletes the copies after send/discard (by id) and on sign-out (everything, including a waiting intent)', async () => {
+    provide('content://media/1', 'a.jpg', 'image/jpeg')
+    fx.raw = [{ shareType: 'image', value: 'content://media/1' }]
+    const storage = await load()
+    await storage.capture()
+    const share = await storage.read('alice')
+    await storage.clear('another-id'); expect(shareFiles()).toHaveLength(1)
+    await storage.clear(share!.id); expect(shareFiles()).toEqual([]); expect(await storage.hasPending()).toBe(false)
+    fx.raw = [{ shareType: 'text', value: 'later' }]
+    await storage.clear(); expect(fx.raw).toEqual([]); expect(await storage.hasPending()).toBe(false)
   })
-  it('does not remove a new stored review when an obsolete screen discards its old ID', async () => {
-    const current = { ...partial(), id: id(raw('second')), caption: 'second', plan: undefined }
-    fixture.stored = JSON.stringify(current); fixture.raw = raw('second')
-    const { incomingStorage } = await import('./storage.native')
-    await incomingStorage.clear(id(raw('first')))
-    expect(JSON.parse(fixture.stored!)).toEqual(current); expect(fixture.raw).toEqual(raw('second'))
+  it('reports missing files when the system cleared the cache while JM was closed', async () => {
+    provide('content://media/1', 'a.jpg', 'image/jpeg')
+    fx.raw = [{ shareType: 'image', value: 'content://media/1' }]
+    const storage = await load()
+    await storage.capture()
+    for (const key of shareFiles()) fx.disk.delete(key)
+    expect(await storage.read('alice')).toMatchObject({ files: [], error: expect.stringMatching(/no longer on this device/) })
   })
 })

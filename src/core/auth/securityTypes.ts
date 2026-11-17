@@ -16,9 +16,13 @@ export interface SecurityStatus {
   /** Organisation-wide switch (Admin → Security). */
   two_step_enforced: boolean
   session_verified: boolean
+  /** Two-step verification is on for this person: a second factor is enrolled (BE-110; older servers: absent). */
+  two_step_enabled?: boolean
   passkeys: PasskeyInfo[]
   recovery_codes_left: number
   locked_capabilities: string[]
+  /** Why each locked capability is locked (BE-110). Passwords and Oversight need two-step verification always. */
+  locked_reasons?: Record<string, 'two_step_required' | 'session_not_verified' | 'recovery_hold'>
   locked_out: boolean
   /** After administrators recovered this account: Passwords and administration paused until then, and until a
    * passkey sign-in. */

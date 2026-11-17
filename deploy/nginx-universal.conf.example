@@ -36,6 +36,16 @@ server {
     }
 
     location = /sw.js { add_header Cache-Control "no-cache"; try_files $uri =404; }
+    location = /share-worker.js { add_header Cache-Control "no-cache"; try_files $uri =404; }
+    # Web Share Target (manifest share_target): the service worker answers this POST and stores the share in the
+    # browser. A POST that reaches nginx (worker not installed yet) must not hit the backend or a 405: send the browser
+    # to the share page, which asks to share again. The share page itself is a normal SPA route (below).
+    location = /share-target {
+        # The body is discarded, never stored or proxied; no size check, so a large share still gets the redirect.
+        client_max_body_size 0;
+        add_header Cache-Control "no-store" always;
+        return 303 /share?shareError=retry;
+    }
     location = /manifest.webmanifest { types { application/manifest+json webmanifest; } add_header Cache-Control "no-cache"; try_files $uri =404; }
     location = /index.html {
         # nginx locations with add_header do not inherit the server's add_header list.

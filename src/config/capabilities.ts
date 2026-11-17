@@ -29,6 +29,7 @@ export const CAPABILITIES = [
   'JP_REQUEST_EMERGENCY',
   'ADMIN_USERS',
   'ADMIN_AUDIT',
+  'ADMIN_TOOLS_MANAGE',
 ] as const
 
 export type Capability = (typeof CAPABILITIES)[number]

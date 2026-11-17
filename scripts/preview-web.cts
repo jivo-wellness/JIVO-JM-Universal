@@ -30,6 +30,9 @@ proxy.on('error', (_error, _req, response) => {
 const server = http.createServer((req, res) => {
   if (!localHost(req)) { res.writeHead(403); res.end(); return }
   if (backendPath(req.url)) { proxy.web(req, res, { target: backend }); return }
+  // Web Share Target: the service worker answers this POST. If it reaches the server (worker not installed yet, or
+  // bypassed), drop the body and send the browser to the share page, which says to share again.
+  if (req.method === 'POST' && (req.url || '').split('?')[0] === '/share-target') { req.resume(); res.writeHead(303, { Location: '/share?shareError=retry', 'Cache-Control': 'no-store' }); res.end(); return }
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return }
   let pathname: string
   try { pathname = decodeURIComponent(new URL(req.url || '/', publicOrigin).pathname) } catch { res.writeHead(400); res.end(); return }

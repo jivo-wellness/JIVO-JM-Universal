@@ -19,6 +19,7 @@ import { subscribeLifecycle } from '../realtime/lifecycle'
 import { watchUnreachable } from './autoRestore'
 import { startupSignals } from '../../shared/startup'
 import type { Me } from './types'
+import { withTwoStepRule } from '../../shared/twoStep'
 import type { LoginResponse } from './security'
 const Context = createContext<SessionController | null>(null)
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -27,7 +28,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/refs
   const [controller] = useState(() => new SessionController({
     boundary: preserve => { clearVaultSession(); void webPush.bind(null); if (!preserve && external.current.owner) { incomingShareBoundary(); external.current.owner = null } advanceSession(); chatLock.bind(null); conversationDrafts.bind(null); void conversationCache.bind(null, undefined, preserve); void favouriteStickers.bind(null, preserve); outbox.setActive(false); void outbox.bind(null, !preserve&&!external.current.active); if(!preserve&&!external.current.active)announceSessionBoundary() }, enabled: Boolean(origin), csrf: () => api.get('/auth/csrf/'),
-    me: async () => (await api.get<Me>('/me/')).data,
+    // Passwords and Oversight only with two-step verification on and a verified session (BE-110).
+    me: async () => withTwoStepRule((await api.get<Me>('/me/')).data),
     login: (email, password) => withSessionLock(async()=>{try{return (await api.post<LoginResponse>('/auth/login/', { email, password })).data}finally{announceSessionBoundary()}}),
     logout: () => withSessionLock(async()=>{try{return await api.post('/auth/logout/')}finally{announceSessionBoundary()}}),
     clear: () => origin ? clearNativeCookies(origin) : Promise.resolve(),

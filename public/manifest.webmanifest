@@ -13,7 +13,15 @@
     "action": "/share-target",
     "method": "POST",
     "enctype": "multipart/form-data",
-    "params": { "title": "title", "text": "text", "url": "url", "files": [{ "name": "files", "accept": ["image/*", "video/*", "audio/*", "application/*", "text/*"] }] }
+    "params": { "title": "title", "text": "text", "url": "url", "files": [{ "name": "files", "accept": [
+      "image/*", "video/*", "audio/*", "text/*",
+      "application/pdf", "application/rtf", "application/zip", "application/json",
+      "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "application/vnd.oasis.opendocument.text", "application/vnd.oasis.opendocument.spreadsheet", "application/vnd.oasis.opendocument.presentation",
+      ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp", ".csv", ".txt", ".rtf", ".zip", ".vcf"
+    ] }] }
   },
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },

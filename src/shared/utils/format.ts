@@ -32,8 +32,10 @@ export function formatRelative(value: string | Date | null | undefined, now: Dat
   return formatDate(d)
 }
 
+/** First letter of the first and last word, ignoring the "(You)" label and punctuation such as brackets. */
 export function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
+  const parts = name.replace(/\s*\(you\)\s*$/i, '').trim().split(/\s+/)
+    .map((part) => part.match(/\p{L}|\p{N}/u)?.[0]).filter((part): part is string => !!part)
   if (parts.length === 0) return '?'
-  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase()
+  return (parts[0] + (parts.length > 1 ? parts[parts.length - 1] : '')).toUpperCase()
 }

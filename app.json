@@ -97,7 +97,16 @@
             ]
           },
           "ios": {
-            "enabled": false
+            "enabled": true,
+            "appGroupId": "group.com.jivo.jm",
+            "extensionBundleIdentifier": "com.jivo.jm.ShareExtension",
+            "activationRule": {
+              "supportsText": true,
+              "supportsWebUrlWithMaxCount": 1,
+              "supportsImageWithMaxCount": 10,
+              "supportsMovieWithMaxCount": 10,
+              "supportsFileWithMaxCount": 10
+            }
           }
         }
       ],

@@ -25,9 +25,14 @@ html = html.replace('</head>', `
 <meta name="apple-mobile-web-app-capable" content="yes" />
 </head>`)
 fs.writeFileSync(index, html)
-const shareWorker = fs.readFileSync(path.join(root, 'pwa', 'incoming-share.ts'), 'utf8')
-const shareCompiled = ts.transpileModule(shareWorker, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText.replace(/export\s*\{\s*\};?\s*$/, '')
-fs.writeFileSync(path.join(dist, 'share-worker.js'), shareCompiled)
+// Share target worker: the app's pure intake rules (src/modules/sharing/shareTarget.ts, no imports) inlined before the
+// handler, both inside one function scope so their names do not leak into sw.js's global scope (importScripts).
+const transpile = (source: string) => ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
+const shareRules = transpile(fs.readFileSync(path.join(root, 'src', 'modules', 'sharing', 'shareTarget.ts'), 'utf8'))
+  .replace(/export\s*\{\s*\};?\s*$/, '').replace(/^export\s+(?=(?:function|const|let|class)\s)/gm, '')
+if (/^(?:import|export)\s/m.test(shareRules)) throw Error('src/modules/sharing/shareTarget.ts must not import or re-export: it is inlined into share-worker.js')
+const shareHandler = transpile(fs.readFileSync(path.join(root, 'pwa', 'incoming-share.ts'), 'utf8')).replace(/export\s*\{\s*\};?\s*$/, '')
+fs.writeFileSync(path.join(dist, 'share-worker.js'), `(() => {\n${shareRules}\n${shareHandler}\n})();\n`)
 
 function filesIn(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {

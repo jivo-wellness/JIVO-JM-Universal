@@ -59,11 +59,11 @@ export function shellLinks(capabilities: readonly string[], preview = false): { 
   const people = can('ADMIN_USERS') && { title: 'People', tabTitle: 'People', href: '/admin?tab=people', icon: 'users', query: { key: 'tab', value: 'people', fallback: true } } as ShellLink
   const groups = can(ADMIN_ACCESS) && { title: 'Permission groups', tabTitle: 'Groups', href: '/admin?tab=groups', icon: 'shieldCheck', query: { key: 'tab', value: 'groups', fallback: !can('ADMIN_USERS') } } as ShellLink
   const security = can('ADMIN_USERS') && { title: 'Security', tabTitle: 'Security', href: '/admin?tab=security', icon: 'lockKeyhole', query: { key: 'tab', value: 'security' } } as ShellLink
-  const launcher = can('JM_ACCESS') && { title: 'Tools', tabTitle: 'Tools', href: '/tools', icon: 'tools' } as ShellLink
-  const manageTools = can('ADMIN_USERS') && { title: 'Software tools', tabTitle: 'Software tools', href: '/admin?tab=tools', icon: 'tools', query: { key: 'tab', value: 'tools' } } as ShellLink
+  // One Tools screen: Messenger users open the tools; ADMIN_TOOLS_MANAGE holders (who may lack JM_ACCESS) also manage them there.
+  const launcher = can(['JM_ACCESS', 'ADMIN_TOOLS_MANAGE']) && { title: 'Tools', tabTitle: 'Tools', href: '/tools', icon: 'tools' } as ShellLink
   const profile: ShellLink = { title: 'Profile', tabTitle: 'Profile', href: '/profile', icon: 'user' }
   const admin = can(ADMIN_ACCESS) && { title: 'Administration', tabTitle: 'Admin', href: '/admin', icon: 'shield' } as ShellLink
-  const rail = keep([home, chats, inbox, vault, launcher, approvals, people, groups, security, manageTools])
+  const rail = keep([home, chats, inbox, vault, launcher, approvals, people, groups, security])
   return {
     rail,
     tabs: keep([home, vault ? launcher : can('JM_ACCESS') && alerts, chats, vault || launcher, profile]),

@@ -5,7 +5,7 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const dir = path.resolve(__dirname, '../../test-results/parity/inbox-vault')
 const peer = { id: 'peer', name: 'Example Colleague', full_name: 'Example Colleague', email: 'peer@example.invalid', avatar_url: null, company: null, is_active: true }
-const me = { ...peer, id: 'me', name: 'Example Tester', full_name: 'Example Tester', display_name: 'Example Tester', email: 'tester@example.invalid', phone: '', bio: '', last_seen_privacy: 'everyone', can_create_groups: true, companies: [], groups: [], capabilities: ['JM_ACCESS', 'JM_SEND_MESSAGE', 'JM_SEND_FILE', 'JP_ACCESS', 'ADMIN_USERS'], session: { id: 'parity', expires_at: '2027-01-01', auth_method: 'password' }, security: { mfa_enrolled: false, mfa_required: false, two_step_enforced: false, session_verified: true, passkeys: [], recovery_codes_left: 0, locked_capabilities: [], locked_out: false } }
+const me = { ...peer, id: 'me', name: 'Example Tester', full_name: 'Example Tester', display_name: 'Example Tester', email: 'tester@example.invalid', phone: '', bio: '', last_seen_privacy: 'everyone', can_create_groups: true, companies: [], groups: [], capabilities: ['JM_ACCESS', 'JM_SEND_MESSAGE', 'JM_SEND_FILE', 'JP_ACCESS', 'ADMIN_USERS'], session: { id: 'parity', expires_at: '2027-01-01', auth_method: 'password' }, security: { mfa_enrolled: false, two_step_enabled: true, mfa_required: false, two_step_enforced: false, session_verified: true, passkeys: [], recovery_codes_left: 0, locked_capabilities: [], locked_out: false } }
 const now = new Date()
 const ago = m => new Date(now.getTime() - m * 60000).toISOString()
 const notes = [

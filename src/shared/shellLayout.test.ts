@@ -15,17 +15,20 @@ describe('reference shell layout', () => {
   })
   it('orders rail and phone tabs like the reference and hides unauthorized pages', () => {
     const all = shellLinks(['JM_ACCESS', 'JP_ACCESS', 'ADMIN_USERS', 'ADMIN_AUDIT'])
-    expect(all.rail.map(l => l.title)).toEqual(['Home', 'Messenger', 'Notifications', 'Passwords', 'Tools', 'Approvals', 'People', 'Permission groups', 'Security', 'Software tools'])
+    expect(all.rail.map(l => l.title)).toEqual(['Home', 'Messenger', 'Notifications', 'Passwords', 'Tools', 'Approvals', 'People', 'Permission groups', 'Security'])
     expect(all.tabs.map(l => l.tabTitle)).toEqual(['Home', 'Tools', 'Chats', 'Passwords', 'Profile'])
     expect(all.account.map(l => l.href)).toEqual(['/profile', '/alerts', '/tools', '/approvals', '/admin'])
     expect(all.tools).toBe('/notifications')
     // Reference BottomNav: without Passwords the JM Alerts list takes that slot.
     expect(shellLinks(['JM_ACCESS']).tabs.map(l => l.tabTitle)).toEqual(['Home', 'Alerts', 'Chats', 'Tools', 'Profile'])
-    expect(shellLinks(['ADMIN_USERS']).rail.map(l => l.href)).toEqual(['/home', '/approvals', '/admin?tab=people', '/admin?tab=groups', '/admin?tab=security', '/admin?tab=tools'])
+    expect(shellLinks(['ADMIN_USERS']).rail.map(l => l.href)).toEqual(['/home', '/approvals', '/admin?tab=people', '/admin?tab=groups', '/admin?tab=security'])
     expect(shellLinks(['ADMIN_AUDIT']).rail.map(l => l.title)).toEqual(['Home', 'Permission groups'])
     expect(shellLinks(['ADMIN_AUDIT']).tools).toBe('/admin?tab=groups')
     expect(shellLinks([]).tabs.map(l => l.href)).toEqual(['/home', '/profile'])
-    expect(shellLinks([], true).rail).toHaveLength(10)
+    expect(shellLinks([], true).rail).toHaveLength(9)
+    // One Tools entry; tool managers reach it even without Messenger, and there is no separate Software tools link.
+    expect(shellLinks(['JM_ACCESS', 'ADMIN_USERS', 'ADMIN_TOOLS_MANAGE']).rail.filter(l => l.icon === 'tools').map(l => l.href)).toEqual(['/tools'])
+    expect(shellLinks(['ADMIN_USERS', 'ADMIN_TOOLS_MANAGE']).rail.map(l => l.href)).toContain('/tools')
   })
   it('lights the link for the current view of a page', () => {
     const { rail, tabs } = shellLinks(['JM_ACCESS', 'ADMIN_USERS'])
