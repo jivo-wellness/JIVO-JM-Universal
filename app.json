@@ -19,7 +19,8 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.jivo.jm",
       "blockedPermissions": [
-        "android.permission.WRITE_CONTACTS"
+        "android.permission.WRITE_CONTACTS",
+        "android.permission.DETECT_SCREEN_CAPTURE"
       ]
     },
     "web": {
@@ -135,6 +136,23 @@
             "image": "./assets/brand/jm-mark.png",
             "backgroundColor": "#0c1210"
           }
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow JIVO JM to take photos you choose to share.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow JIVO JM to show recent photos for sharing.",
+          "savePhotosPermission": false,
+          "granularPermissions": [
+            "photo"
+          ]
         }
       ]
     ],

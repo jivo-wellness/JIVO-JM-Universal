@@ -14,7 +14,7 @@ import { Sheet } from '../../components/Sheet'
 import { approvalsChanged, decide, listApprovals } from './api'
 import { FILTERS, KIND_LABEL, appHref, badgeText, confirmCopy, doneMessage, emptyTitle, metaLine, resultLink, rowsFor, statusFor, statusTone, type ApprovalDecision, type ApprovalFilter, type ApprovalItem } from './model'
 
-const KIND_ICON: Record<string, { icon: IconName; color: string }> = { admin: { icon: 'shieldCheck', color: '#d97706' }, vault_owner: { icon: 'key', color: '#7c3aed' }, emergency_access: { icon: 'lifeBuoy', color: '#e11d48' } }
+const KIND_ICON: Record<string, { icon: IconName; color: string }> = { oversight_reveal: { icon: 'eye', color: '#e11d48' }, admin: { icon: 'shieldCheck', color: '#d97706' }, vault_owner: { icon: 'key', color: '#7c3aed' }, emergency_access: { icon: 'lifeBuoy', color: '#e11d48' } }
 const isStepUpCancel = (e: unknown) => isAxiosError(e) && (e.response?.data as { code?: string } | undefined)?.code === 'step_up_required'
 
 /**

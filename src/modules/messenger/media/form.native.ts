@@ -5,5 +5,6 @@ export function uploadForm(asset: PickedFile, purpose: 'attachment' | 'avatar' |
   form.append('file', { uri: asset.uri, name: asset.name, type: asset.mime } as unknown as Blob)
   form.append('purpose', purpose)
   if (asset.sticker && purpose === 'attachment') form.append('sticker', '1')
+  if (asset.mime.startsWith('audio/') && Number.isFinite(asset.durationMs) && asset.durationMs! > 0) form.append('duration_ms', String(Math.round(asset.durationMs!)))
   return form
 }

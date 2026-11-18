@@ -1,3 +1,4 @@
+import { attachmentMessages } from './attachmentMessages'
 import { deliverOwned } from './ownedDelivery'
 import { isAxiosError,isCancel } from 'axios'
 import { api,errorMessage } from '../../core/api/client'
@@ -36,6 +37,14 @@ export const outbox:OutboxController=new OutboxController({storage: {
 },remove:()=>outboxStorage.remove(local.owner,payload.client_id),mismatch:()=>{outbox.setActive(false);sessionLost()}})},network:e=>Boolean(e && typeof e === 'object' && 'retryable' in e && e.retryable === true)||isAxiosError(e)&&!isCancel(e)&&(!e.response||[408,429,500,502,503,504].includes(e.response.status)),message:errorMessage,delivered:message=>listeners.forEach(l=>l(message))})
 
 export async function enqueueFiles(owner: string, conversation: string, payload: SendPayload, files: { key: string; file: PickedFile }[], attachments: import('./api').Attachment[] = []) {
+ // Each file has a stable message ID, so partial queue retries remain idempotent.
+ if (files.length > 1) {
+  for (const item of files) { const error = uploadLimitError(item.file); if (error) throw Error(error) }
+  for (const [index, message] of attachmentMessages(payload, files).entries()) await enqueueFiles(owner, conversation, message.payload, [message.file], index === 0 ? attachments : [])
+  return
+ }
+ // A partial batch retry must not replace files already owned by the sending queue.
+ if (outbox.snapshot().entries.some(entry => entry.owner === owner && entry.payload.client_id === payload.client_id)) return
  const media: QueuedMedia[] = []
  try {
   for (const item of files) { const error = uploadLimitError(item.file); if (error) throw Error(error); media.push(await queuedMedia.save(owner, payload.client_id, item.key, item.file)) }

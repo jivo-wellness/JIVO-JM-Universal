@@ -11,7 +11,7 @@ const guard = new ScreenCaptureGuard({
   unprotectSwitcher: () => Platform.OS === 'ios' ? ScreenCapture.disableAppSwitcherProtectionAsync() : Promise.resolve(),
 })
 
-/** Keeps screen capture (or only the iOS app-switcher snapshot) protected while `level` is set. */
+/** Protects only the app-switcher snapshot. Screenshots and recording are allowed. */
 export function useScreenCaptureGuard(level: CaptureLevel | false) {
-  useEffect(() => level ? guard.acquire(level) : undefined, [level])
+  useEffect(() => level ? guard.acquire('switcher') : undefined, [level])
 }

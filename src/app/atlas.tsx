@@ -1,3 +1,2 @@
-import { Workspace } from '../components/Workspace'
-import { AtlasScreen } from '../modules/atlas/AtlasScreen'
-export default function Screen() { return <Workspace><AtlasScreen /></Workspace> }
+import { Redirect } from 'expo-router'
+export default function Screen() { return <Redirect href={{ pathname: '/messenger', params: { conversation: 'atlas' } }} /> }

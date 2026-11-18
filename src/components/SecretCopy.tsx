@@ -25,7 +25,7 @@ export function SecretCopy({ value, entryId, field }: { value: string; entryId: 
     report: () => reportCopy(entryId, field),
     clear: Platform.OS === 'android' ? clearAndroidClipboard : undefined,
   }))
-  // Mounted only while a vault secret is revealed: block screenshots, recording and the recents snapshot.
+  // Mounted only while a vault secret is revealed: protect the app-switcher snapshot; screenshots remain allowed.
   useScreenCaptureGuard('capture')
   const state = useSyncExternalStore(copy.subscribe, copy.snapshot, copy.snapshot)
   useEffect(() => { const off = subscribeSensitiveView(copy.setActive); return () => { off(); copy.setActive(false) } }, [copy])

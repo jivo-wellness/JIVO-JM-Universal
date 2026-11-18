@@ -14,7 +14,7 @@ const missingBuild = `${path.relative(root, path.join(directory, 'index.html'))}
 if (!fs.existsSync(path.join(directory, 'index.html'))) console.error(`Warning: ${missingBuild}`)
 // Every Expo Router page in src/app (pwa/sw.ts and deploy/nginx-universal.conf.example keep the same list;
 // scripts/pwa-policy.test.cts fails if a route is missing from any of them).
-const shellRoute = /^\/(?:$|(?:login|home|share|messenger|profile|passwords|notifications|admin|preview|tools|approvals|alerts|atlas|group-info|group-edit)\/?$|(?:invite|reset-password)\/[^/]+\/?$)/
+const shellRoute = /^\/(?:$|(?:login|home|share|messenger|profile|passwords|notifications|admin|preview|tools|approvals|alerts|atlas|group-info|group-edit|audit|oversight)\/?$|(?:invite|reset-password)\/[^/]+\/?$)/
 const port = Number(process.env.JM_PREVIEW_PORT || 4175)
 if (!Number.isInteger(port) || port <= 1024 || port > 65535) throw Error('Invalid preview port')
 const publicOrigin = `http://127.0.0.1:${port}`

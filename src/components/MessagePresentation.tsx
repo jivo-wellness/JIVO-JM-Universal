@@ -4,6 +4,7 @@ import { shadow, useColors } from '../ui'
 import { clockTime, dayLabel, formatBytes, sameDay } from '../modules/messenger/lib/text'
 import type { Attachment, DeliveryStatus, ReactionSummary, ReplyPreview } from '../modules/messenger/api'
 import { Icon } from './Icon'
+import { InlineAudio } from './MediaPlayback'
 import { PhoneContactCard } from './PhoneContactCard'
 import { isVCard } from '../modules/messenger/lib/vcard'
 
@@ -159,7 +160,7 @@ export function MessageAttachments({ items, own, origin, onImage, onMedia, onExp
   const layout = chatImageLayout(width, tiles.length)
   return <View style={{ gap: 6, marginTop: overlay ? 0 : 2, marginBottom: 0 }}>
     {tiles.length > 0 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, width: layout.width, maxWidth: '100%' }}>
-      {tiles.map((a, i) => { const uri = safe(a.preview_url) || safe(a.thumb_url); const video = a.kind === 'video'
+      {tiles.slice(0, 4).map((a, i) => { const uri = (a.mime === 'image/gif' ? safe(a.download_url) : null) || safe(a.preview_url) || safe(a.thumb_url); const video = a.kind === 'video'
         // A lone video without a poster frame is drawn 16:9 rather than as a tall empty photo box.
         const box = video && !uri && tiles.length === 1 ? { width: layout.box.width, height: Math.round(layout.box.width * 9 / 16) } : layout.box
         return <Pressable key={a.id} accessibilityRole="button" accessibilityLabel={video ? `Open media ${a.name}` : `View image ${a.name}`} onPress={() => video ? onMedia(a) : onImage(a)} style={[{ ...box, maxWidth: '100%', overflow: 'hidden', borderRadius: overlay ? 8 : 10, backgroundColor: video ? '#0f172a' : c.neutral }, pointerStyle]}>
@@ -167,11 +168,12 @@ export function MessageAttachments({ items, own, origin, onImage, onMedia, onExp
             <View pointerEvents="none" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, alignItems: 'center', justifyContent: 'center' }}>
               <View style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' }}><View style={{ marginLeft: 3 }}><Icon name="play" size={22} color="#ffffff" /></View></View>
             </View></> : <TileImage uri={uri} name={a.name} />}
-          {overlay && rest.length === 0 && i === tiles.length - 1 && <MediaMetaPill meta={overlay} />}
+          {i === 3 && tiles.length > 4 && <View pointerEvents="none" style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#ffffff', fontSize: 32, fontFamily: 'Inter_600SemiBold' }}>+{tiles.length - 4}</Text></View>}
+          {overlay && rest.length === 0 && i === Math.min(tiles.length, 4) - 1 && <MediaMetaPill meta={overlay} />}
         </Pressable> })}
     </View>}
     {rest.map(a => a.status === 'ready' && a.kind === 'audio'
-      ? <MediaChip key={a.id} attachment={a} own={own} label={`Open media ${a.name}`} onPress={() => onMedia(a)} />
+      ? <InlineAudio key={a.id} attachment={a} />
       : a.status === 'ready' && isVCard(a) ? <PhoneContactCard key={a.id} attachment={a} onExport={() => onExport(a)} />
       : <FileChip key={a.id} attachment={a} label={`Export attachment ${a.name}`} onPress={a.status === 'ready' ? () => onExport(a) : undefined} />)}
   </View>
@@ -231,9 +233,9 @@ export function MessageBubble({ own, tail = true, sender, label, meta, inlineMet
   const footer = <MessageMeta {...meta} />
   return <Pressable accessibilityLabel={label} onLongPress={onActions} delayLongPress={400} onHoverIn={() => setHover(true)} onHoverOut={() => setHover(false)}
     accessibilityActions={onActions ? [{ name: 'longpress', label: 'Message actions' }] : undefined} onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'longpress') onActions?.() }}
-    style={[{ flexDirection: 'row', justifyContent: own ? 'flex-end' : 'flex-start', paddingHorizontal: 14, paddingTop: tail ? 6 : 1, paddingBottom: pill ? 20 : 1, backgroundColor: selected ? c.successSoft : 'transparent' }, web ? ({ cursor: 'auto' } as object) : null]}>
+    style={[{ flexDirection: 'row', justifyContent: own ? 'flex-end' : 'flex-start', paddingHorizontal: 14, paddingTop: tail ? 10 : 3, paddingBottom: pill ? 22 : 3, backgroundColor: selected ? c.successSoft : 'transparent' }, web ? ({ cursor: 'auto' } as object) : null]}>
     <View style={{ maxWidth: '80%' }}>
-      <View style={{ maxWidth: 544, minWidth: inlineMeta || metaOverlay ? undefined : metaWidth + 18, borderRadius: 10, ...(tail ? own ? { borderTopRightRadius: 0 } : { borderTopLeftRadius: 0 } : {}), ...(metaOverlay ? { padding: 3 } : { paddingHorizontal: 9, paddingTop: 5, paddingBottom: 6 }), backgroundColor: background, boxShadow: shadow.sm }}>
+      <View style={{ maxWidth: 544, minWidth: inlineMeta || metaOverlay ? undefined : metaWidth + 18, borderRadius: 10, ...(tail ? own ? { borderTopRightRadius: 0 } : { borderTopLeftRadius: 0 } : {}), ...(metaOverlay ? { padding: 3 } : { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 8 }), backgroundColor: background, boxShadow: shadow.sm }}>
         {tail && <View accessible={false} pointerEvents="none" style={{ position: 'absolute', top: 0, width: 0, height: 0, borderTopWidth: 11, borderTopColor: background, ...(own ? { right: -8, borderRightWidth: 8, borderRightColor: 'transparent' } : { left: -8, borderLeftWidth: 8, borderLeftColor: 'transparent' }) }} />}
         {(!!sender || forwarded || !!reply) && <View style={metaOverlay ? { paddingHorizontal: 6, paddingTop: 2, paddingBottom: 3 } : undefined}>
           {!!sender && <Text numberOfLines={1} accessibilityRole={onSender ? 'button' : undefined} onPress={onSender} style={[{ color: c.brand, fontFamily: 'Inter_600SemiBold', fontSize: 13, lineHeight: 18, marginBottom: 1 }, onSender ? pointerStyle : null]}>{sender}</Text>}

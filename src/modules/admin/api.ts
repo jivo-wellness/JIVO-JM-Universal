@@ -1,5 +1,6 @@
 import { api } from '@/core/api/client'
 import type { Page, Person } from '@/core/api/types'
+import type { CapabilityModule } from '@/config/capabilities'
 import type { Membership } from '@/core/auth/types'
 
 export type UserStatus = 'active' | 'invited' | 'inactive' | 'deleted'
@@ -30,6 +31,19 @@ export interface AdminUser {
   pending_email: string | null
   pending_email_requested_at: string | null
   is_superuser?: boolean
+  /** Freeze: no sign-in, sessions ended (BE-085 §8). `frozen_until` empty = until unfrozen. */
+  frozen_at?: string | null
+  frozen_until?: string | null
+  /** Empty unless you may freeze people. */
+  frozen_reason?: string
+  /** Block: can sign in and read, cannot send, react, create, upload or share. */
+  blocked_at?: string | null
+  /** Empty unless you may block people. */
+  blocked_reason?: string
+  /** In the built-in Super Administrators group. */
+  is_super_admin?: boolean
+  /** What you may do to this person (the capability and the target-rank guard, server-side). */
+  can?: AdminUserCan
 }
 
 export interface AdminCompany {
@@ -50,6 +64,8 @@ export interface EffectivePermission {
   key: string
   label: string
   area: 'JM' | 'JP' | 'ADMIN'
+  /** The catalogue module (BE-085); older servers send only `area`. */
+  module?: CapabilityModule
   /** Groups that grant it. */
   groups: string[]
   /** Granted to the person directly (Django admin), not through a group. */
@@ -73,11 +89,23 @@ export interface GroupInfo {
   can_edit: boolean
   can_manage_members: boolean
   created_at: string
+  /** Holds every capability, including ones added later (Super Administrators). */
+  all_capabilities?: boolean
+  /** The built-in Super Administrators group. */
+  super_admin?: boolean
 }
 
 export interface CapabilityInfo {
   key: string
   label: string
+  /** Messenger, Passwords, Administration or Oversight (older servers: absent, derived from the key). */
+  module?: CapabilityModule
+  /** One line: what it allows. */
+  description?: string
+  /** Withheld until the person signs in with two-step verification. */
+  mfa_required?: boolean
+  /** Built-in groups that grant it (besides Super Administrators). */
+  default_groups?: string[]
   /** Held by the current administrator (only those can be put into a group). */
   held: boolean
 }
@@ -89,6 +117,10 @@ export interface GroupMember {
   avatar_url: string | null
   is_active: boolean
   is_me: boolean
+  /** May this administrator take them out (rank, escalation, last Super Administrator; BE-092). Older servers: absent. */
+  can_remove?: boolean
+  /** Why not, as a guard code (`target_outranks_actor`, `last_super_admin`…). */
+  reason?: string | null
 }
 
 export interface GroupInput {
@@ -251,3 +283,103 @@ export const listChatAllowed = async (id: string, q: string, cursor?: string | n
   (await api.get<{ results: ChatPerson[]; next_cursor: string | null }>(`${chatAccessUrl(id)}allowed/`, { params: clean({ q, cursor: cursor ?? '' }) })).data
 export const changeChatAllowed = async (id: string, data: { add?: string[]; remove?: string[]; clear?: boolean }) =>
   (await api.post<ChatAccess>(`${chatAccessUrl(id)}allowed/`, data)).data
+
+export interface CapabilityHolder extends GroupMember {
+  /** Groups that grant it; `id` is null for a group made outside JM. */
+  via: { id: string | null; name: string }[]
+  /** Granted to the person directly (Django admin). */
+  direct: boolean
+  /** Holds every permission whatever their groups (set only from the command line). */
+  superuser: boolean
+}
+
+export interface HoldersPage {
+  capability: { key: string; label: string; module: CapabilityModule; description: string }
+  count: number
+  results: CapabilityHolder[]
+  next_cursor: string | null
+}
+
+export interface BulkSkip {
+  user_id: string
+  name: string | null
+  /** Guard code: `self_grant_forbidden`, `target_outranks_actor`, `last_super_admin`, `superuser`, `not_member`… */
+  reason: string
+  detail: string
+}
+
+export interface GroupBulkResult {
+  removed: { user_id: string; name: string; lost: string[] }[]
+  skipped: BulkSkip[]
+  group: GroupInfo
+}
+
+export interface CapabilityBulkResult {
+  removed: { user_id: string; name: string; groups_left: { id: string; name: string }[]; direct_revoked: boolean; also_lost: string[] }[]
+  skipped: BulkSkip[]
+}
+
+export const bulkRemoveGroupMembers = async (id: string, userIds: string[]) =>
+  (await api.post<GroupBulkResult>(`/admin/groups/${id}/members/bulk-remove/`, { user_ids: userIds })).data
+export const listCapabilityHolders = async (key: string, q: string, cursor?: string | null) =>
+  (await api.get<HoldersPage>(`/admin/capabilities/${key}/holders/`, { params: { q: q || undefined, cursor: cursor || undefined } })).data
+export const removeCapabilityHolders = async (key: string, userIds: string[]) =>
+  (await api.post<CapabilityBulkResult>(`/admin/capabilities/${key}/holders/remove/`, { user_ids: userIds, mode: 'groups' })).data
+
+export interface AdminUserCan {
+  edit: boolean
+  freeze: boolean
+  block: boolean
+  deactivate: boolean
+  delete: boolean
+  sessions: boolean
+  reset_mfa: boolean
+  password: boolean
+}
+
+// Audit log (BE-085 §10): every stream, newest first, with the hash-chain check of the chosen stream.
+export const AUDIT_STREAMS = ['security', 'admin', 'moderation', 'jp', 'oversight'] as const
+export type AuditStream = (typeof AUDIT_STREAMS)[number]
+
+export interface AuditEvent {
+  id: number
+  stream: AuditStream
+  seq: number
+  at: string
+  action: string
+  outcome: string
+  actor: { id: string; name: string; email: string } | null
+  target: { type: string; id: string; label: string } | null
+  ip: string | null
+  details: Record<string, unknown>
+}
+
+export interface AuditVerification {
+  stream: AuditStream
+  ok: boolean
+  checked: number
+  broken_at: number | null
+}
+
+export interface AuditFilters {
+  stream?: string
+  actor?: string
+  target?: string
+  action?: string
+  outcome?: string
+  since?: string
+  until?: string
+}
+
+export const listAudit = async (f: AuditFilters, cursor?: string | null) =>
+  (await api.get<{ results: AuditEvent[]; cursor: string | null; verification?: AuditVerification | null }>('/admin/audit/', { params: clean({ ...f, cursor: cursor ?? '' }) })).data
+
+// Freeze and block (BE-085 §8): a reason is required; admin step-up as for every administrator action.
+export const freezeUser = async (id: string, data: { reason: string; until: string | null }) =>
+  (await api.post<AdminUser>(`/admin/users/${id}/freeze/`, data)).data
+export const unfreezeUser = async (id: string, reason = '') => (await api.post<AdminUser>(`/admin/users/${id}/unfreeze/`, { reason })).data
+export const blockUser = async (id: string, reason: string) => (await api.post<AdminUser>(`/admin/users/${id}/block/`, { reason })).data
+export const unblockUser = async (id: string, reason = '') => (await api.post<AdminUser>(`/admin/users/${id}/unblock/`, { reason })).data
+export function isFrozen(u: Pick<AdminUser, 'frozen_at' | 'frozen_until'>, now: Date = new Date()): boolean {
+  return Boolean(u.frozen_at) && (!u.frozen_until || new Date(u.frozen_until) > now)
+}

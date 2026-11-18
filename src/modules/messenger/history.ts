@@ -42,7 +42,7 @@ export class HistoryController {
   invalidate = () => { this.generation++; this.reconciling = false; this.queued = [] }
   select = async (id: string | null, around?: number) => {
     const generation = ++this.generation; this.reconciling = false; this.queued = []
-    this.publish({ ...this.state, id, detail: null, window: window.emptyWindow, loading: Boolean(id), error: '', accessLost: false, cached: false, locked: false })
+    this.publish({ ...this.state, id, targetSeq: around ?? null, detail: null, window: window.emptyWindow, loading: Boolean(id), error: '', accessLost: false, cached: false, locked: false })
     if (!id) return
     let freshDetail: ConversationDetail | undefined
     const cacheGeneration = this.deps.cache?.generation?.()
@@ -52,7 +52,7 @@ export class HistoryController {
       // Not for a jump to a message (`around`): the cached window may not contain it.
       if (!around && this.deps.cache) {
         const early = await this.deps.cache.get(id).catch(() => null)
-        if (early && generation === this.generation && this.state.loading && !this.state.window.messages.length) {
+        if (early && !early.window.hasMoreAfter && generation === this.generation && this.state.loading && !this.state.window.messages.length) {
           this.publish({ ...this.state, detail: early.detail, window: early.window, cached: true, latestJump: this.state.latestJump + 1 })
         }
       }

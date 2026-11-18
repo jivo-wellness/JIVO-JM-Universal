@@ -37,7 +37,7 @@ async function adminSection(page, width, name) {
 }
 // Media and image bubbles follow the reference (no inline export button); export lives in the message actions sheet.
 async function exportFromActions(page, name) {
-  const bubble = page.getByLabel(/^Message from /).filter({ has: page.getByRole('button', { name: new RegExp('^(Open media|View image) ' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$') }) }).last()
+  const bubble = page.getByLabel(/^Message from /).filter({ has: page.getByRole('button', { name: new RegExp('^(Open media|View image|Play voice message) ' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$') }) }).last()
   await bubble.hover()
   await bubble.getByRole('button', { name: 'Message actions', exact: true }).click()
   await page.getByRole('button', { name: 'Export attachment ' + name, exact: true }).click()
@@ -244,18 +244,28 @@ async function run() {
       await page.getByRole('button', { name: 'Sign in', exact: true }).click()
       await page.getByRole('button', { name: 'Open Example conversation', exact: true }).click()
       await page.getByText('Hello from the mocked API', { exact: true }).waitFor()
+      if (process.env.JM_TEST_ONLY === 'chat-ux') {
+        const longBody=Array.from({length:18},(_,i)=>`Expansion line ${i+1}`).join('\n')
+        socketClient.send(JSON.stringify({type:'MESSAGE_UPDATED',data:{conversation:'chat',seq:1,body:longBody,mentions:[],updated_at:'2026-11-18T05:00:00Z'}}))
+        const more=page.getByRole('button',{name:'Read 5 more lines',exact:true})
+        await more.waitFor()
+        const text=page.getByText(longBody,{exact:true})
+        const height=()=>text.evaluate(el=>el.parentElement.getBoundingClientRect().height)
+        const first=await height();await more.click();const second=await height();assert(Math.abs(second-first-110)<2,'Read more must add exactly five 22px lines')
+        await more.click();const third=await height();assert(Math.abs(third-second-110)<2,'Second read more must add another five lines');await more.click();await expect(more).toHaveCount(0)
+        socketClient.send(JSON.stringify({type:'MESSAGE_UPDATED',data:{conversation:'chat',seq:1,body:'Hello from the mocked API',mentions:[],updated_at:'2026-11-18T05:01:00Z'}}))
+      }
       await exportFromActions(page,'Example audio.wav')
       const attachmentDownload=page.waitForEvent('download');await page.getByRole('button',{name:'Confirm attachment export',exact:true}).click();assert.equal((await attachmentDownload).suggestedFilename(),'export-Example_audio.wav');await page.getByRole('button',{name:'Close attachment export',exact:true}).click()
       await page.evaluate(()=>{window.attachmentURLs=0;const create=URL.createObjectURL.bind(URL);URL.createObjectURL=blob=>{window.attachmentURLs++;return create(blob)}})
       await exportFromActions(page,'Example audio.wav');holdAttachment=true;await page.getByRole('button',{name:'Confirm attachment export',exact:true}).click();await expect.poll(()=>attachmentRequested).toBe(true);await page.getByRole('button',{name:'Cancel attachment export',exact:true}).click();releaseAttachment();holdAttachment=false;assert.equal(await page.evaluate(()=>window.attachmentURLs),0)
       await exportFromActions(page,'Example audio.wav');messages[0].deleted=true;await page.getByRole('button',{name:'Confirm attachment export',exact:true}).click();await page.getByText('This attachment is no longer available.',{exact:true}).waitFor();assert.equal(attachmentDownloads,2);messages[0].deleted=false;await page.getByRole('button',{name:'Close attachment export',exact:true}).click()
 
-      await page.getByRole('button', { name: 'Open media Example audio.wav', exact: true }).click()
-      await page.getByRole('button', { name: 'Play audio', exact: true }).click()
+      await page.getByRole('button', { name: 'Play voice message Example audio.wav', exact: true }).click()
       await page.getByRole('button', { name: 'Pause audio', exact: true }).click()
       messages[0] = { ...messages[0], deleted: true, attachments: [] }
       socketClient.send(JSON.stringify({ type: 'MESSAGE_DELETED', data: { conversation: 'chat', id: 'first', seq: 1, updated_at: '2026-10-20T07:00:00Z' } }))
-      await page.getByRole('button', { name: 'Close media', exact: true }).waitFor({ state: 'hidden' })
+      await page.getByLabel('Audio position', { exact: true }).waitFor({ state: 'hidden' })
       for (let seq = 2; seq <= 25; seq++) { const incoming = message('reader-' + seq, seq, 'Reader sample ' + seq); messages.push(incoming); socketClient.send(JSON.stringify({ type: 'MESSAGE_CREATED', data: incoming })) }
       await expect(page.getByText('Reader sample 25', { exact: true })).toBeInViewport().catch(async error => { console.log('READER_GEOMETRY', await page.getByText('Reader sample 25', { exact: true }).evaluate(node => { const result = []; for (let n = node; n; n = n.parentElement) result.push({ tag: n.tagName, height: n.clientHeight, scroll: n.scrollHeight, top: n.scrollTop, y: n.getBoundingClientRect().y, overflow: getComputedStyle(n).overflowY }); return result })); console.log('INDICATOR', await page.getByRole('button', { name: 'New messages \u2014 jump to latest', exact: true }).count()); await page.screenshot({ path: 'test-results/reader-failure.png' }); throw error })
       await page.getByText('Reader sample 25', { exact: true }).hover()
@@ -323,6 +333,35 @@ async function run() {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Messenger overflow at ' + width)
       await page.getByRole('button', { name: 'Close actions', exact: true }).waitFor({ state: 'hidden' })
       await page.screenshot({ path: `test-results/messenger-mocked-${width}.png`, fullPage: true })
+      if (process.env.JM_TEST_ONLY === 'chat-ux') {
+        const album = {...message('album-preview', Math.max(...messages.map(m=>m.seq))+1, ''), kind:'attachment', attachments:Array.from({length:7},(_,i)=>({id:'album-photo-'+i,name:'Album '+i+'.png',kind:'image',status:'ready',size:100,mime:'image/png',width:400,height:400,thumb_url:'/api/jm/media/mock.png',preview_url:'/api/jm/media/mock.png',download_url:'/api/jm/media/mock.png',created_at:'2026-10-20T12:00:00Z'}))}
+        messages.push(album);socketClient.send(JSON.stringify({type:'MESSAGE_CREATED',data:album}))
+        if(width<768) await page.getByRole('button',{name:'Back to conversations',exact:true}).click()
+        else await page.goto(base+'/messenger')
+        await page.getByRole('button',{name:'Open Example conversation',exact:true}).first().click()
+        await expect(page.getByRole('button',{name:/^View image Album /})).toHaveCount(4)
+        await expect(page.getByText('+3',{exact:true})).toBeVisible()
+        await page.screenshot({path:`test-results/album-four-${width}.png`,fullPage:true})
+        if(width<768) await page.getByRole('button',{name:'Back to conversations',exact:true}).click()
+        await openNotifications(page,width)
+        await page.screenshot({path:`test-results/notifications-flat-${width}.png`,fullPage:true})
+        await page.getByRole('button',{name:'Notification preferences',exact:true}).click()
+        await page.getByText('This device',{exact:true}).waitFor()
+        await page.screenshot({path:`test-results/notification-settings-flat-${width}.png`,fullPage:true})
+        await page.getByRole('link', { name: /^Profile: / }).last().click()
+        await expect(page.getByRole('button', { name: 'Your details', exact: true })).toBeVisible()
+        await expect(page.getByRole('button', { name: 'Access', exact: true })).toHaveCount(0)
+        await page.getByLabel('Profile options', { exact: true }).click()
+        await page.getByRole('button', { name: 'Access', exact: true }).click()
+        await expect(page.getByRole('button', { name: 'Back to Profile', exact: true })).toBeVisible()
+        await expect(page.getByRole('button', { name: 'Your details', exact: true })).toHaveCount(0)
+        await page.getByRole('button', { name: 'Back to Profile', exact: true }).click()
+        await expect(page.getByRole('button', { name: 'Your details', exact: true })).toBeVisible()
+        await page.screenshot({path:`test-results/profile-pages-${width}.png`,fullPage:true})
+        assert.deepEqual(runtimeErrors,[])
+        console.log('PASS chat UX: progressive text, audio controls, follow/reader position, send/edit/retry, flat notification screens')
+        await context.close();continue
+      }
       if (width === 360) await require('./scripts/special-message-ui.cjs')(page, { base, person, message, getMessages: () => messages, setMessages: value => { messages = value } })
       const eventMessage = { ...message('event-synthetic', messages.length + 1, ''), kind: 'event', event: { title: 'Synthetic team event', starts_at: '2027-01-01T12:00:00Z', ends_at: null, place: 'Synthetic room', description: 'Event response test', counts: { going: 0, maybe: 0, not_going: 0 }, my_answer: null }, can: { ...message('x', 1, '').can, respond: true } }
       messages.push(eventMessage); socketClient.send(JSON.stringify({ type: 'MESSAGE_CREATED', data: eventMessage }))
@@ -425,12 +464,12 @@ async function run() {
       // Like the reference MessageList, a cleared thread is simply empty (no "No messages yet." placeholder since 2e4a6d4).
       await expect(page.getByLabel(/^Message from /)).toHaveCount(0)
       const restricted = message('restricted', 1, 'Restricted example'); restricted.attachments = [audioAttachment]; messages = [restricted]; socketClient.send(JSON.stringify({ type: 'MESSAGE_CREATED', data: restricted }))
-      await page.getByRole('button', { name: 'Open media Example audio.wav', exact: true }).click()
-      await page.getByRole('button', { name: 'Close media', exact: true }).waitFor()
+      await page.getByRole('button', { name: 'Play voice message Example audio.wav', exact: true }).click()
+      await page.getByLabel('Audio position', { exact: true }).waitFor()
       denied = true; socketClient.send(JSON.stringify({ type: 'MEMBER_REMOVED', data: { conversation: 'chat', user_id: 'me' } }))
       await page.getByRole('button', { name: 'Open Updated example group', exact: true }).waitFor()
       await expect(page.getByLabel('Message', { exact: true })).toHaveCount(0)
-      await expect(page.getByRole('button', { name: 'Close media', exact: true })).toHaveCount(0)
+      await expect(page.getByLabel('Audio position', { exact: true })).toHaveCount(0)
       // Profile is a list of collapsed sections (ProfileSection, since 2e4a6d4): open them all before using their fields.
       const expandProfile=async()=>{await page.getByRole('button',{name:'Your details',exact:true}).waitFor();for(const title of ['Your details','Access','Two-step verification','Security notices','Password','Signed-in devices','Chat background','This device']){const section=page.getByRole('button',{name:title,exact:true});if(await section.count()&&await section.first().getAttribute('aria-expanded')!=='true'){await section.first().click();await expect(section.first()).toHaveAttribute('aria-expanded','true')}}}
       await page.getByRole('link', { name: /^Profile: / }).last().click()

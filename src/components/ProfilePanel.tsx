@@ -13,7 +13,7 @@ import { useIdentity } from '../core/auth/identity'
 import { mobileError } from '../shared/phone'
 import { isWide } from '../shared/shellLayout'
 import { PasswordField } from './PasswordField'
-import { ProfileSection, Pill, SettingRow, mutedText } from './ProfileSection'
+import { ProfilePageSection, ProfileSection, Pill, SettingRow, mutedText } from './ProfileSection'
 import { subscribeSensitiveView } from '../shared/sensitiveLifecycle'
 import { SensitiveRequestGuard } from '../shared/sensitive'
 import { Button, ErrorState, Field, Label, radius, styles, useColors } from '../ui'
@@ -24,7 +24,8 @@ import { IconTextButton } from './AdminUi'
 import { useReconnectRetry } from '../shared/useReconnectRetry'
 import { BlockedContacts } from './BlockContact'
 const AUTH_LABEL: Record<string, string> = { password: 'Password', password_totp: 'Password + one-time code', passkey: 'Passkey', password_recovery: 'Password + recovery code' }
-export function ProfilePanel() {
+export function ProfilePanel({ section = 'overview' }: { section?: string }) {
+  const titles: Record<string, string[]> = { overview: ['Your details', 'This device'], access: ['Access'], security: ['Two-step verification', 'Security notices'], password: ['Password', 'JIVO password'], devices: ['Signed-in devices'], privacy: ['Privacy'], background: ['Chat background'] }
   const { me, adopt, logout } = useSession(); const c = useColors(); const { width } = useWindowDimensions(); const { jivo, canChangePassword } = useIdentity()
   const [phoneError, setPhoneError] = useState('')
   const [name, setName] = useState(me?.display_name ?? ''); const [phone, setPhone] = useState(me?.phone ?? ''); const [bio, setBio] = useState(me?.bio ?? '')
@@ -63,7 +64,7 @@ export function ProfilePanel() {
     setPulling(true); setNoticesRevision(v => v + 1); setDevicesState(s => ({ ...s, error: '' })); setRevision(v => v + 1)
     void adopt().catch(() => undefined).finally(() => setPulling(false))
   }
-  return <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={pulling} onRefresh={pull} colors={[c.brand]} tintColor={c.brand} />}>
+  return <ProfilePageSection.Provider value={titles[section] ?? titles.overview}><ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={pulling} onRefresh={pull} colors={[c.brand]} tintColor={c.brand} />}>
     {isWide(width) && <View style={{ marginBottom: 4 }}><Label large>{title}</Label><Text style={{ marginTop: 4, color: c.muted, fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20 }}>{jivo ? me?.email : me?.bio || me?.email}</Text></View>}
     {!!error && <Text accessibilityRole="alert" style={{ color: c.danger, fontSize: 14 }}>{error}</Text>}
     {!!notice && <Text accessibilityRole="alert" style={{ color: c.success, fontFamily: 'Inter_500Medium', fontSize: 14 }}>{notice}</Text>}{busy && <ActivityIndicator color={c.brand} />}
@@ -114,7 +115,7 @@ export function ProfilePanel() {
         </View>
         {me?.security.mfa_enrolled && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}><Icon name="shield" size={14} color={c.muted} /><Text style={mutedText(c.muted)}>{'Changes here ask you to confirm it’s you first.'}</Text></View>}
       </ProfileSection>
-      {!!me && <SecurityNotices userId={me.id} refresh={noticesRevision} />}
+      {section === 'security' && !!me && <SecurityNotices userId={me.id} refresh={noticesRevision} />}
       {canChangePassword && <ProfileSection title={jivo ? 'JIVO password' : 'Password'}>
         {jivo && <Text style={{ fontFamily: 'Inter_400Regular', color: c.muted, fontSize: 14, lineHeight: 20, marginBottom: 12 }}>The same password for every JIVO app. Changing it here changes it everywhere.</Text>}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
@@ -151,5 +152,5 @@ export function ProfilePanel() {
       {recoveryCodes.map(code => <Text key={code} selectable style={{ color: c.text, fontFamily: 'monospace' }}>{code}</Text>)}
       <Button title="I have saved my codes" onPress={clearRecovery} />
     </Sheet>
-  </ScrollView>
+  </ScrollView></ProfilePageSection.Provider>
 }

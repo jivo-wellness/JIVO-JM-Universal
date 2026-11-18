@@ -1,3 +1,4 @@
+import { ImageViewer } from './ImageViewer'
 import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Image, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -69,7 +70,7 @@ export function AttachmentPreview({ initialFiles, source = 'document', notice: i
     operation.current = true; setBusy(true); setError('')
     try {
       for (const item of owned.current) { const invalid = uploadLimitError(item.file); if (invalid) throw Error(`${item.file.name}: ${invalid}`) }
-      setStatus('Saving on this device…')
+      setStatus('Preparing to send...')
       await onSend(owned.current, caption, clientId.current)
     } catch (e) { if (alive.current) setError(errorMessage(e)) }
     finally { operation.current = false; if (alive.current) { setBusy(false); setStatus('') } }
@@ -88,7 +89,7 @@ export function AttachmentPreview({ initialFiles, source = 'document', notice: i
         <Icon name="pencil" size={20} color={c.text} /><Text style={{ color: c.text, fontFamily: 'Inter_500Medium', fontWeight: '500', fontSize: 14 }}>Edit</Text>
       </Pressable> : undefined}>
       <View style={{ flex: 1, minHeight: 120, paddingHorizontal: 16, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' }}>
-        {kind === 'image' ? <Image source={{ uri: current.file.uri }} accessibilityLabel={current.file.name} resizeMode="contain" style={{ width: '100%', height: '100%' }} />
+        {kind === 'image' ? <ImageViewer key={current.key} uri={current.file.uri} name={current.file.name} previous={!busy && items.indexOf(current) > 0 ? () => setSelected(items[items.indexOf(current) - 1].key) : undefined} next={!busy && items.indexOf(current) < items.length - 1 ? () => setSelected(items[items.indexOf(current) + 1].key) : undefined} />
           : kind === 'video' ? <VideoPreview key={current.key} uri={current.file.uri} label={`Video ${current.file.name}`} />
             : <View style={{ width: 288, maxWidth: '100%', alignItems: 'center', gap: 12, padding: 32, borderRadius: 16, backgroundColor: c.panel, boxShadow: '0 10px 30px rgba(0,0,0,0.12)' }}>
               <View style={{ width: 80, height: 96, borderRadius: 12, backgroundColor: c.successSoft, alignItems: 'center', justifyContent: 'center' }}>

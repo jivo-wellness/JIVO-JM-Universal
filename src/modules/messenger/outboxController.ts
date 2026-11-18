@@ -38,10 +38,11 @@ export class OutboxController {
   private epoch = 0
   private lastCreated = 0
   private active = false
+  private activated = false
   private hydrated = false
   private entries: PendingSend[] = []
   private notice = ''
-  private snapshotValue = { entries: this.entries, notice: this.notice }
+  private snapshotValue = { entries: this.entries, notice: this.notice, active: this.active }
   private listeners = new Set<() => void>()
   private writes: Promise<unknown> = Promise.resolve()
   private pending = new Map<string, Promise<void>>()
@@ -61,7 +62,7 @@ export class OutboxController {
   private now() { return this.deps.now?.() ?? Date.now() }
   snapshot = () => this.snapshotValue
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
-  private publish() { this.syncing++; this.snapshotValue = { entries: this.entries, notice: this.notice }; this.listeners.forEach(l => l()) }
+  private publish() { this.syncing++; this.snapshotValue = { entries: this.entries, notice: this.notice, active: this.active }; this.listeners.forEach(l => l()) }
   private cancelTimer() { if (this.timer !== null) clearTimeout(this.timer); this.timer = null }
   private write(work: () => Promise<void>) {
     const result = this.writes.catch(() => {}).then(work)
@@ -84,6 +85,7 @@ export class OutboxController {
   async bind(owner: string | null, clearStorage = true) {
     if (owner !== null && owner === this.owner && this.hydrated) return
     const epoch = ++this.epoch; this.flight?.abort(); this.cancelTimer()
+    this.activated = false
     this.owner = owner; this.entries = []; this.lastCreated = 0; this.pending.clear(); this.hydrated = false; this.notice = ''; this.publish()
     if (!owner) { this.hydrated = true; if (clearStorage) void this.write(() => this.deps.storage.clear()); return }
     try {
@@ -95,7 +97,15 @@ export class OutboxController {
       this.hydrated = true; this.publish(); void this.flush()
     } catch { if (epoch === this.epoch) { this.notice = 'Outbox restore failed. Sending is paused.'; this.setActive(false); this.publish() } }
   }
-  setActive(active: boolean) { this.active = active; if (!active) { this.flight?.abort(); this.cancelTimer() } else void this.flush() }
+  setActive(active: boolean) {
+    const changed = this.active !== active; this.active = active
+    // A real return to connectivity should not wait for the old offline backoff.
+    // Repeated online signals leave backoff intact to prevent retry storms.
+    if (changed && active && this.activated) this.entries = this.entries.map(p => p.status === 'queued' ? { ...p, nextAttemptAt: 0 } : p)
+    if (active) this.activated = true
+    if (changed) this.publish()
+    if (!active) { this.flight?.abort(); this.cancelTimer() } else void this.flush()
+  }
 
   // Await this before clearing the composer. Failed writes never create queued bubbles.
   enqueue(owner: string, conversation: string, payload: SendPayload, extra?: Pick<PendingSend, 'media' | 'attachments'>): Promise<void> {
@@ -168,15 +178,20 @@ export class OutboxController {
         const { item } = nextDue(this.entries, this.now())
         if (!item) break
         const controller = new AbortController(); this.flight = controller
-        this.change(item.payload.client_id, 'sending'); await this.writes
+        // The queued payload is already durable. Sending is transient UI state;
+        // persisting it adds a full secure-storage transaction before every POST.
+        this.entries = this.entries.map(p => p.payload.client_id === item.payload.client_id ? { ...p, status: 'sending', error: undefined } : p)
+        this.publish()
         if (epoch !== this.epoch) break
         if (!this.active) { this.change(item.payload.client_id, 'queued'); this.flight = null; break }
         try {
           const message = await this.deps.send(item.conversation, item.payload, controller.signal)
           if (epoch !== this.epoch) return
           this.entries = this.entries.filter(p => p.payload.client_id !== item.payload.client_id)
-          void this.write(() => this.deps.storage.remove(item.owner, item.payload.client_id)); await this.writes
           this.publish(); if (message) this.deps.delivered(message)
+          // Show the server acknowledgement immediately; cleanup still completes
+          // before the next send, and stable client IDs protect restart retries.
+          await this.write(() => this.deps.storage.remove(item.owner, item.payload.client_id))
         } catch (error) {
           if (epoch !== this.epoch) return
           const aborted = controller.signal.aborted

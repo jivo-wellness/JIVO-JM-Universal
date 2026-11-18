@@ -115,3 +115,9 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
 }
 // Phone values of the reference page padding (16px gutter); Workspace adds the desktop difference (32px).
 export const styles = StyleSheet.create({ page: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 20, paddingBottom: 24, gap: 18 }, row: { flexDirection: 'row', gap: 12, alignItems: 'center' } })
+
+/** Flat page section: list rows sit directly on the page instead of nested cards. */
+export function ListSection({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+ const c = useColors()
+ return <View style={[{ gap: 12, paddingVertical: 16, borderBottomWidth: 1, borderColor: c.border }, style, { borderRadius: 0, backgroundColor: 'transparent', boxShadow: 'none' }]}>{children}</View>
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { safeToolLink } from './links'
+import { safeToolLink, toolInitials } from './links'
 describe('software links', () => {
   it('opens HTTPS websites and native app links', () => {
     expect(safeToolLink('https://messenger.jivo.in')).toBe(true)
@@ -11,4 +11,10 @@ describe('software links', () => {
       expect(safeToolLink(value, true)).toBe(false)
     }
   })
+})
+
+it('matches web tool initials for padded and blank names', () => {
+  expect(toolInitials(' HO ')).toBe('HO')
+  expect(toolInitials('ji')).toBe('JI')
+  expect(toolInitials('  ')).toBe('?')
 })

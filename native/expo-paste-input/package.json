@@ -1,0 +1,42 @@
+{
+  "name": "expo-paste-input",
+  "version": "0.2.2",
+  "description": "A wrapper around React Native TextInput to paste images and GIFs from the clipboard (iOS, Android, Web)",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "files": [
+    "build",
+    "android",
+    "ios",
+    "src",
+    "expo-module.config.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "react-native",
+    "expo",
+    "react-native-paste-input",
+    "react-native-image-paste-input",
+    "clipboard",
+    "paste",
+    "paste-image",
+    "paste-gif",
+    "textinput",
+    "react-native-clipboard",
+    "react-native-textinput"
+  ],
+  "repository": "https://github.com/arunabhverma/expo-paste-input",
+  "bugs": {
+    "url": "https://github.com/arunabhverma/expo-paste-input/issues"
+  },
+  "author": "Arunabh Verma <arunabhverma01@gmail.com> (https://github.com/arunabhverma)",
+  "license": "MIT",
+  "homepage": "https://github.com/arunabhverma/expo-paste-input#readme",
+  "dependencies": {},
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

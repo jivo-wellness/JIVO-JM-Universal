@@ -44,11 +44,11 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
 export function SearchInput({ value, onChange, placeholder, accessibilityLabel, style }: { value: string; onChange: (v: string) => void; placeholder: string; accessibilityLabel?: string; style?: StyleProp<ViewStyle> }) {
   const c = useColors(); const [focused, setFocused] = useState(false)
   return <View style={[{ justifyContent: 'center' }, style]}>
-    <View pointerEvents="none" style={{ position: 'absolute', left: 16, zIndex: 1 }}><Icon name="search" size={16} color={c.muted} /></View>
-    <TextInput selectionColor={c.brand} cursorColor={c.brand} underlineColorAndroid="transparent" value={value} onChangeText={onChange} placeholder={placeholder} accessibilityLabel={accessibilityLabel ?? placeholder} placeholderTextColor={c.muted}
+    {!value && <View pointerEvents="none" style={{ position: 'absolute', right: 16, zIndex: 1 }}><Icon name="search" size={16} color={c.muted} /></View>}
+    <TextInput selectionColor={c.brand} cursorColor={c.brand} underlineColorAndroid="transparent" autoCorrect={false} autoCapitalize="none" returnKeyType="search" value={value} onChangeText={onChange} placeholder={placeholder} accessibilityLabel={accessibilityLabel ?? placeholder} placeholderTextColor={c.muted}
       onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
-      style={{ height: 48, includeFontPadding: false, paddingVertical: 12, paddingLeft: 44, paddingRight: 44, paddingStart: 44, paddingEnd: 44, borderWidth: 1, borderRadius: radius.control, borderColor: focused ? c.brand : c.border, backgroundColor: web ? c.input : c.panel, color: c.text, fontFamily: 'Inter_400Regular', fontSize: web ? 14 : 16, ...(focused ? { boxShadow: '0 0 0 2px rgba(22, 163, 74, 0.25)' } : {}), ...(web ? ({ outlineStyle: 'none' } as object) : {}) }} />
-    {!!value && <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => onChange('')} style={{ position: 'absolute', right: 8, padding: 4, borderRadius: 4, ...pointer() }}><Icon name="x" size={16} color={c.muted} /></Pressable>}
+      style={{ height: 48, includeFontPadding: false, paddingVertical: 12, paddingLeft: 16, paddingRight: 48, paddingStart: 16, paddingEnd: 48, borderWidth: 1, borderRadius: radius.control, borderColor: focused ? c.brand : c.border, backgroundColor: web ? c.input : c.panel, color: c.text, fontFamily: 'Inter_400Regular', fontSize: web ? 14 : 16, ...(focused ? { boxShadow: '0 0 0 2px rgba(22, 163, 74, 0.25)' } : {}), ...(web ? ({ outlineStyle: 'none' } as object) : {}) }} />
+    {!!value && <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => onChange('')} style={{ position: 'absolute', right: 4, width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 20, ...pointer() }}><Icon name="x" size={16} color={c.muted} /></Pressable>}
   </View>
 }
 

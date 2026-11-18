@@ -22,7 +22,7 @@ import { router, useFocusEffect } from 'expo-router'
 function GhostIconButton({ icon, size = 16, label, onPress, disabled = false }: { icon: IconName; size?: number; label: string; onPress: () => void; disabled?: boolean }) {
   const c = useColors(); const [hover, setHover] = useState(false)
   return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} onHoverIn={() => setHover(true)} onHoverOut={() => setHover(false)}
-    style={({ pressed }) => ({ width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: hover || pressed ? c.hover : 'transparent', opacity: disabled ? 0.5 : 1, ...(Platform.OS === 'web' ? { cursor: disabled ? 'not-allowed' : 'pointer' } : {}) } as object)}>
+    style={({ pressed }) => ({ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: hover || pressed ? c.hover : 'transparent', opacity: disabled ? 0.5 : 1, ...(Platform.OS === 'web' ? { cursor: disabled ? 'not-allowed' : 'pointer' } : {}) } as object)}>
     <Icon name={icon} size={size} color={c.text} />
   </Pressable>
 }

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { Animated, PanResponder, Platform, Pressable, ScrollView, Text, View, useWindowDimensions, type PressableStateCallbackType, type ViewStyle } from 'react-native'
 import * as notifications from '../modules/notifications/api'
 import { useCursor } from '../shared/useCursor'
-import { Button, EmptyState, Label, Spinner, Surface, styles, useColors } from '../ui'
+import { Button, EmptyState, Label, Spinner, styles, useColors } from '../ui'
 import { errorMessage } from '../core/api/client'
 import { realtime } from '../core/realtime/socket'
 import { AlertsPanel } from './AlertsPanel'
@@ -40,7 +40,7 @@ function SwipeRow({ children, onDelete, label, disabled }: { children: ReactNode
       style={[{ position: 'absolute', top: 0, bottom: 0, right: 0, width: SWIPE_REVEAL, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: c.dangerFill }, pointer()]}>
       <Icon name="trash2" size={16} color="#ffffff" /><Text style={{ fontFamily: font.s, fontWeight: '600', fontSize: 14, color: '#ffffff' }}>Delete</Text>
     </Pressable>
-    <Animated.View {...pan.panHandlers} style={{ transform: [{ translateX: x }], backgroundColor: c.dark ? '#0f172a' : '#ffffff' }}>
+    <Animated.View {...pan.panHandlers} style={{ transform: [{ translateX: x }], backgroundColor: c.bg }}>
       {children}
       {open && <Pressable accessibilityLabel="Close delete" onPress={() => settle(0)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />}
       {!open && web && <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={disabled} onPress={onDelete} onFocus={() => setHovered(true)} onBlur={() => setHovered(false)}
@@ -63,7 +63,7 @@ function NotificationList() {
   const what = kind === 'alerts' ? 'alerts' : kind === 'messages' ? 'message notifications' : 'notifications'; const shown = state === 'all' ? what : `${state} ${what}`
   const phone = width < 640
   return <>
-    <Surface style={{ overflow: 'visible' }}>
+    <View style={{ overflow: 'visible' }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderBottomWidth: 1, borderBottomColor: c.border, zIndex: 5 }}>
         <Select label="Show" value={state} onChange={setState} disabled={busy} style={phone ? { flexGrow: 1, flexBasis: 0, minWidth: 0 } : { width: 128 }} options={[{ value: 'all', label: 'All' }, { value: 'unread', label: 'Unread' }, { value: 'read', label: 'Read' }]} />
         <Select label="Type" value={kind} onChange={setKind} disabled={busy} style={phone ? { flexGrow: 1, flexBasis: 0, minWidth: 0 } : { width: 144 }} options={[{ value: 'all', label: 'Everything' }, { value: 'messages', label: 'Messages' }, { value: 'alerts', label: 'Alerts' }]} />
@@ -94,7 +94,7 @@ function NotificationList() {
       {page.cursor && <View style={{ alignItems: 'center', padding: 8 }}><Button variant="ghost" size="sm" title="More notifications" disabled={page.loading} onPress={() => void page.more()} /></View>}
       {busy && page.items.length > 0 && <View style={{ padding: 8 }}><Spinner /></View>}
       {page.items.length > 0 && !isWide(width) && <Text style={{ fontFamily: font.r, fontSize: 12, lineHeight: 16, color: c.muted, textAlign: 'center', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 }}>Swipe a notification left to delete it.</Text>}
-    </Surface>
+    </View>
     <Sheet visible={Boolean(selected)} onClose={() => setSelected(null)}><Label large>{selected?.title}</Label>{!!selected?.body && <Muted size={14}>{selected.body}</Muted>}{!!selected && <Muted>{relative(selected.created_at)}</Muted>}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
         <Button variant="secondary" title="Close notification" onPress={() => setSelected(null)} />
@@ -107,13 +107,13 @@ function NotificationList() {
   </>
 }
 
-/** Reference settings Section: Surface p-5 with a semibold heading row. */
+/** Full-width settings sections separated by a divider. */
 function Section({ title, aside, children, z = 1 }: { title: string; aside?: ReactNode; children: ReactNode; z?: number }) {
   const c = useColors()
-  return <Surface style={{ padding: 20, overflow: 'visible', zIndex: z }}>
+  return <View style={{ paddingHorizontal: 20, paddingVertical: 24, borderBottomWidth: 1, borderBottomColor: c.border, overflow: 'visible', zIndex: z }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}><Text accessibilityRole="header" style={{ fontFamily: font.s, fontWeight: '600', fontSize: 16, lineHeight: 24, color: c.text }}>{title}</Text>{aside}</View>
     {children}
-  </Surface>
+  </View>
 }
 
 /** Reference Checkbox: 16px box, medium label, muted xs description. */
@@ -178,8 +178,8 @@ function Privacy() {
 
 function SettingsTab() {
   const { width } = useWindowDimensions(); const two = width >= 1024
-  return <View style={{ flexDirection: two ? 'row' : 'column', gap: 20, alignItems: 'flex-start' }}>
-    <View style={{ gap: 20, flex: two ? 1 : undefined, width: two ? undefined : '100%', minWidth: 0, zIndex: 2 }}>
+  return <View style={{ flexDirection: two ? 'row' : 'column', gap: 0, alignItems: 'flex-start' }}>
+    <View style={{ gap: 0, flex: two ? 1 : undefined, width: two ? undefined : '100%', minWidth: 0, zIndex: 2 }}>
       <Section title="This device" z={4}><DevicePush /></Section>
       <Privacy />
     </View>
@@ -190,7 +190,7 @@ function SettingsTab() {
 export function ActivityPanel({ initialView }: { initialView?: string }) {
   const [tab, setTab] = useState<'notifications' | 'alerts'>(initialView === 'alerts' ? 'alerts' : 'notifications')
   const [settings, setSettings] = useState(false)
-  return <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.page, { gap: 0 }]}>
+  return <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.page, { gap: 0, paddingHorizontal: 0, paddingTop: 0, maxWidth: undefined, width: '100%' }]}>
     <PageHeader title="Notifications" subtitle="What reached you, and what reaches you where." />
     <UnderlineTabs asButtons label="Notifications" value={settings ? 'settings' as const : tab} onChange={value => { if (value === 'settings') { setTab('notifications'); setSettings(true) } else { setSettings(false); setTab(value) } }}
       tabs={[{ value: 'notifications', label: 'Notifications' }, { value: 'alerts', label: 'Alerts' }, { value: 'settings', label: 'Settings', accessibilityLabel: 'Notification preferences' }]} />

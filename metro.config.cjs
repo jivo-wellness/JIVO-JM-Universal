@@ -1,3 +1,4 @@
+const path = require('node:path')
 const { getDefaultConfig } = require('expo/metro-config')
 
 const config = getDefaultConfig(__dirname)
@@ -13,5 +14,17 @@ config.resolver.blockList = [
   new RegExp(`^${root}[\\\\/](?:\\.native-build|android|ios|test-results)(?:[\\\\/]|$)`),
   /[\\/]node_modules[\\/].*[\\/]android[\\/](?:\.cxx|build)(?:[\\/]|$)/,
 ]
+
+// Resolve the vendored module directly: npm's Windows junction is not always
+// indexed by Metro. Keep the package dependency for Expo native autolinking.
+const resolveRequest = config.resolver.resolveRequest
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  const target = moduleName === 'expo-paste-input'
+    ? path.join(__dirname, 'native', 'expo-paste-input', 'src', 'index.ts')
+    : moduleName
+  return resolveRequest
+    ? resolveRequest(context, target, platform)
+    : context.resolveRequest(context, target, platform)
+}
 
 module.exports = config

@@ -26,19 +26,20 @@ it('aborts background sends and preserves their id for foreground retry',async()
  const f=fixture();f.send.mockImplementationOnce((_conversation,_payload,signal)=>new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(Error('aborted')))));await f.controller.bind('a');f.controller.setActive(true);await f.controller.enqueue('a','chat',payload);await tick();f.controller.setActive(false);await tick();expect(f.controller.snapshot().entries[0].status).toBe('queued');f.controller.setActive(true);await tick();expect(f.send.mock.calls[1][1].client_id).toBe('same-id');expect(f.controller.snapshot().entries).toEqual([])
 })
 
-it('requeues a message when backgrounding occurs while persisting its sending state', async () => {
+it('sends after the durable enqueue without another sending-state write', async () => {
  const f = fixture(); await f.controller.bind('a')
- const original = f.storage.put.getMockImplementation()!
- let release!: () => void
- f.storage.put.mockImplementation(async (entry, create) => {
-  if (entry.status === 'sending') await new Promise<void>(resolve => { release = resolve })
-  await original(entry, create)
- })
  f.controller.setActive(true); await f.controller.enqueue('a', 'chat', payload); await tick()
- expect(release).toBeTypeOf('function'); f.controller.setActive(false); release(); await tick()
- expect(f.send).not.toHaveBeenCalled(); expect(f.controller.snapshot().entries[0].status).toBe('queued')
- f.storage.put.mockImplementation(original); f.controller.setActive(true); await tick()
- expect(f.send).toHaveBeenCalledOnce(); expect(f.controller.snapshot().entries).toEqual([])
+ expect(f.send).toHaveBeenCalledOnce()
+ expect(f.storage.put.mock.calls.some(([entry]) => entry.status === 'sending')).toBe(false)
+})
+it('shows acknowledgement before slow disk cleanup completes', async () => {
+ const f = fixture(); await f.controller.bind('a')
+ let release!: () => void
+ f.storage.remove.mockImplementation(() => new Promise<void>(resolve => { release = resolve }))
+ f.controller.setActive(true); await f.controller.enqueue('a', 'chat', payload); await tick()
+ expect(f.delivered).toHaveBeenCalledWith(msg)
+ expect(f.controller.snapshot().entries).toEqual([])
+ release(); await tick()
 })
 
 it('does not publish a queued bubble or send until durable persistence finishes', async () => {
@@ -140,4 +141,17 @@ it('marks an upload_not_scanned refusal failed with the server detail and moves 
  f.controller.setActive(true); await tick()
  expect(f.controller.snapshot().entries).toMatchObject([{ status: 'failed', error: 'This file was not virus-scanned, so it cannot be opened or sent.' }])
  expect(f.send).toHaveBeenCalledTimes(2)
+})
+
+it('retries immediately on reconnection instead of waiting for offline backoff', async () => {
+ vi.useFakeTimers()
+ const f = fixture(); await f.controller.bind('a'); f.controller.setActive(true)
+ f.send.mockRejectedValueOnce('network')
+ await f.controller.enqueue('a', 'chat', payload); await tick()
+ expect(f.send).toHaveBeenCalledTimes(1)
+ f.controller.setActive(true); await tick()
+ expect(f.send).toHaveBeenCalledTimes(1)
+ f.controller.setActive(false); f.controller.setActive(true); await tick()
+ expect(f.send).toHaveBeenCalledTimes(2)
+ expect(f.controller.snapshot().entries).toEqual([])
 })

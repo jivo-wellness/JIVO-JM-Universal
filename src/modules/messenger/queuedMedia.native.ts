@@ -12,7 +12,7 @@ export const queuedMedia = {
   const dir = messageDir(owner, client); dir.create({ intermediates: true, idempotent: true })
   // expo-file-system 58's copy is asynchronous: wait for it, so the source (a share or picker copy) can go right after.
   const target = new File(dir, segment(key)); await new File(file.uri).copy(target)
-  return { key, name: file.name, mime: file.mime, size: target.size, ...(file.sticker ? { sticker: true } : {}) }
+  return { key, name: file.name, mime: file.mime, size: target.size, ...(file.durationMs ? { durationMs: file.durationMs } : {}), ...(file.sticker ? { sticker: true } : {}) }
  },
  async open(owner: string, client: string, media: QueuedMedia): Promise<PickedFile> {
   const file = new File(messageDir(owner, client), segment(media.key))

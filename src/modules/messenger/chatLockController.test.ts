@@ -60,9 +60,9 @@ it('opens no identity request while hidden and relocks if the device clock moves
   const { model, deps, advance } = setup(); model.bind('alice'); model.visibility(false); expect(await model.unlock()).toBe(false); expect(deps.verify).not.toHaveBeenCalled()
   model.visibility(true); await model.unlock(); advance(100); model.visibility(false); advance(-200); model.visibility(true); expect(model.snapshot().unlocked).toBe(false)
 })
-it('updates lock/unlock settings through the backend and opens the current in-memory gate', async () => {
+it('closes the display gate immediately after locking a chat', async () => {
   const { model, deps } = setup(); model.bind('alice')
-  expect(await model.setLocked('c', true)).toMatchObject({ id: 'c', locked: true }); expect(model.snapshot().unlocked).toBe(true)
+  expect(await model.setLocked('c', true)).toMatchObject({ id: 'c', locked: true }); expect(model.snapshot().unlocked).toBe(false)
   expect(await model.setLocked('c', false)).toMatchObject({ id: 'c', locked: false }); expect(deps.update.mock.calls.map(call => call.slice(0, 2))).toEqual([['c', true], ['c', false]])
 })
 it('does not show a late settings mutation result after explicit relock', async () => {

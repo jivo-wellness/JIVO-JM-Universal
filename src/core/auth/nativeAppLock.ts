@@ -5,7 +5,10 @@ export class NativeAppLock {
   private generation = 0
   private restoreRevision = 0
   private disposed = false
-  constructor(private deps: { read: () => Promise<boolean>; write: (enabled: boolean) => Promise<void>; authenticate: () => Promise<boolean>; cancel: () => void }) {}
+  private autoAttempted = false
+  private backgroundAt: number | null = null
+  private resumeUnlocked = false
+  constructor(private deps: { read: () => Promise<boolean>; write: (enabled: boolean) => Promise<void>; authenticate: () => Promise<boolean>; cancel: () => void }, private now = () => Date.now()) {}
   snapshot = () => this.state
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn) } }
   private publish(patch: Partial<NativeLockState>) { if (!this.disposed) { const next = { ...this.state, ...patch }; this.state = { ...next, opened: next.opened || next.ready && !next.locked }; this.listeners.forEach(fn => fn()) } }
@@ -13,10 +16,20 @@ export class NativeAppLock {
     // React development StrictMode can detach and attach the same effect/model instance.
     this.disposed = false
     const revision = ++this.restoreRevision
-    try { const enabled = await this.deps.read(); if (revision === this.restoreRevision) this.publish({ ready: true, enabled, locked: enabled, error: '' }) }
+    try { const enabled = await this.deps.read(); if (revision === this.restoreRevision) this.publish({ ready: true, enabled, locked: enabled && (!this.state.ready || !this.state.enabled || this.state.locked), error: '' }) }
     catch { if (revision === this.restoreRevision) this.publish({ ready: false, locked: true, error: 'Device lock settings could not be read. Retry or sign out.' }) }
   }
-  background() { this.generation++; this.deps.cancel(); this.publish({ locked: this.state.enabled, busy: false }) }
+  background() { if (this.backgroundAt === null) { this.backgroundAt = this.now(); this.resumeUnlocked = this.state.ready && !this.state.locked && !this.state.busy } this.autoAttempted = false; this.generation++; this.deps.cancel(); this.publish({ locked: this.state.enabled, busy: false }) }
+  async foreground() {
+    if (this.backgroundAt !== null) {
+      const resume = this.resumeUnlocked && this.now() - this.backgroundAt < 300_000
+      this.backgroundAt = null; this.resumeUnlocked = false
+      if (resume && this.state.ready) this.publish({ locked: false })
+    }
+    if (this.disposed || !this.state.ready || !this.state.enabled || !this.state.locked || this.state.busy || this.autoAttempted) return
+    this.autoAttempted = true
+    await this.verify()
+  }
   async verify(change?: boolean) {
     if (!this.state.ready || this.state.busy) return
     const generation = ++this.generation; this.publish({ busy: true, error: '' })

@@ -1,3 +1,4 @@
+import { AccountStateDialog, type StateAction } from '../modules/admin/AccountStateDialog'
 /**
  * One person's page (reference admin/pages/UserDetailPage): "← People", a header card with the photo, name,
  * status / two-step badges, email and last sign-in, the reset-link button and a "More actions" menu; then
@@ -11,7 +12,7 @@ import { useIdentity } from '../core/auth/identity'
 import { errorMessage } from '../core/api/client'
 import { useResource } from '../shared/useResource'
 import { formatDateTime, formatRelative } from '../shared/utils/format'
-import { Button, Card, ErrorState, Field, Spinner, Surface, glass, radius, useColors } from '../ui'
+import { Button, ListSection as Card, ErrorState, Field, Spinner, ListSection as Surface, glass, radius, useColors } from '../ui'
 import { Icon, type IconName } from './Icon'
 import { Badge, IconTextButton, type Tone } from './AdminUi'
 import { AdminFeedback, PersonChat, PersonCompanies, useAdminOperation } from './AdminManagement'
@@ -57,18 +58,18 @@ function Grid({ children, gap = 16 }: { children: ReactNode[]; gap?: number }) {
 }
 
 function Details({ user, onSaved }: { user: admin.AdminUser; onSaved: () => void }) {
-  const { jivo } = useIdentity(); const op = useAdminOperation()
+  const { jivo } = useIdentity(); const { me } = useSession(); const editable = !!me?.capabilities.includes('ADMIN_USER_EDIT') && user.can?.edit !== false; const op = useAdminOperation()
   const [v, setV] = useState({ full_name: user.full_name, display_name: user.display_name, employee_code: user.employee_code ?? '', phone: user.phone ?? '' })
   const set = (key: keyof typeof v) => (value: string) => setV(old => ({ ...old, [key]: value }))
   const hint = jivo ? 'From their JIVO account' : undefined
   return <View style={{ gap: 16 }}>
     <Grid>{[
-      <Field key="f" label="Full name" value={v.full_name} onChangeText={set('full_name')} editable={!jivo && !user.is_deleted} hint={hint} />,
-      <Field key="d" label="Display name" value={v.display_name} onChangeText={set('display_name')} editable={!user.is_deleted} />,
-      <Field key="e" label="Employee code" value={v.employee_code} onChangeText={set('employee_code')} editable={!jivo && !user.is_deleted} hint={hint} />,
-      <Field key="p" label="Phone" value={v.phone} onChangeText={set('phone')} editable={!user.is_deleted} keyboardType="phone-pad" />,
+      <Field key="f" label="Full name" value={v.full_name} onChangeText={set('full_name')} editable={editable && !jivo && !user.is_deleted} hint={hint} />,
+      <Field key="d" label="Display name" value={v.display_name} onChangeText={set('display_name')} editable={editable && !user.is_deleted} />,
+      <Field key="e" label="Employee code" value={v.employee_code} onChangeText={set('employee_code')} editable={editable && !jivo && !user.is_deleted} hint={hint} />,
+      <Field key="p" label="Phone" value={v.phone} onChangeText={set('phone')} editable={editable && !user.is_deleted} keyboardType="phone-pad" />,
     ]}</Grid>
-    {!user.is_deleted && <View style={{ alignSelf: 'flex-start' }}><Button title="Save details" loading={op.busy} disabled={op.busy} onPress={() => void op.run(() => admin.updateUser(user.id, jivo ? { display_name: v.display_name, phone: v.phone } : { ...v, employee_code: v.employee_code || null }), onSaved)} /></View>}
+    {editable && !user.is_deleted && <View style={{ alignSelf: 'flex-start' }}><Button title="Save details" loading={op.busy} disabled={op.busy} onPress={() => void op.run(() => admin.updateUser(user.id, jivo ? { display_name: v.display_name, phone: v.phone } : { ...v, employee_code: v.employee_code || null }), onSaved)} /></View>}
     <AdminFeedback op={op} />
   </View>
 }
@@ -164,9 +165,9 @@ export function PersonDetail({ id, onClose, onChanged }: { id: string; onClose: 
   const c = useColors(); const { me } = useSession(); const { jivo } = useIdentity(); const { width } = useWindowDimensions(); const sm = width >= 640
   const load = useCallback(() => admin.getUser(id), [id]); const resource = useResource(load); const op = useAdminOperation()
   const [confirm, setConfirm] = useState<{ title: string; body: string; label: string; danger?: boolean; action: () => Promise<unknown>; after?: () => void } | null>(null)
-  const [settingPassword, setSettingPassword] = useState(false)
+  const [settingPassword, setSettingPassword] = useState(false); const [stateAction, setStateAction] = useState<StateAction | null>(null)
   const refresh = () => { resource.refresh(); onChanged() }
-  const u = resource.value; const isSelf = id === me?.id; const manages = !!me?.capabilities.includes('ADMIN_USERS')
+  const u = resource.value; const isSelf = id === me?.id; const manages = !!me?.capabilities.includes('ADMIN_USER_GROUPS'); const can = (key: string, action?: keyof admin.AdminUserCan) => !!me?.capabilities.some(held => held === key) && (!action || u?.can?.[action] !== false)
   const back = <Pressable accessibilityRole="link" accessibilityLabel="Close person details" onPress={onClose} style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, opacity: hovered ? 1 : 0.95 }, pointer]}>
     {({ hovered }: { hovered?: boolean; pressed: boolean }) => <><Icon name="back" size={16} color={hovered ? c.text : c.muted} /><Text style={{ fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20, color: hovered ? c.text : c.muted }}>People</Text></>}
   </Pressable>
@@ -174,20 +175,24 @@ export function PersonDetail({ id, onClose, onChanged }: { id: string; onClose: 
   const ask = (title: string, body: string, label: string, action: () => Promise<unknown>, danger = false, after?: () => void) => setConfirm({ title, body, label, action, danger, after })
   const s = STATUS[u.status] ?? { label: u.status, tone: 'neutral' as Tone }
   const menu: MenuEntry[] = isSelf || u.is_deleted ? [] : [
-    ...(u.locked_out ? [{ icon: 'unlock' as const, label: 'Unlock sign-in', a11y: 'Unlock sign-in', onPress: () => void op.run(() => admin.unlockUser(id), refresh) }] : []),
-    ...(u.mfa_enabled ? [{ icon: 'shieldOff' as const, label: 'Reset two-step verification', a11y: "Reset person's two-step verification", onPress: () => ask(`Reset two-step verification for ${u.name}?`, 'Their passkeys and recovery codes are removed. A second administrator may need to approve.', 'Reset', () => admin.resetUserMfa(id), true) }] : []),
-    ...(!jivo && manages ? [{ icon: 'lockKeyhole' as const, label: 'Set password', a11y: 'Set password', onPress: () => setSettingPassword(true) }] : []),
+    ...(can('ADMIN_USER_FREEZE','freeze') ? [{ icon: 'lock' as const, label: admin.isFrozen(u) ? 'Unfreeze' : 'Freeze account', a11y: 'Change account freeze', onPress: () => setStateAction(admin.isFrozen(u) ? 'unfreeze' : 'freeze') }] : []),
+    ...(can('ADMIN_USER_BLOCK','block') ? [{ icon: 'shieldOff' as const, label: u.blocked_at ? 'Unblock messaging' : 'Block messaging', a11y: 'Change messaging block', onPress: () => setStateAction(u.blocked_at ? 'unblock' : 'block') }] : []),
+    ...(u.locked_out && can('ADMIN_USER_UNLOCK') ? [{ icon: 'unlock' as const, label: 'Unlock sign-in', a11y: 'Unlock sign-in', onPress: () => void op.run(() => admin.unlockUser(id), refresh) }] : []),
+    ...(u.mfa_enabled && can('ADMIN_USER_RESET_MFA','reset_mfa') ? [{ icon: 'shieldOff' as const, label: 'Reset two-step verification', a11y: "Reset person's two-step verification", onPress: () => ask(`Reset two-step verification for ${u.name}?`, 'Their passkeys and recovery codes are removed. A second administrator may need to approve.', 'Reset', () => admin.resetUserMfa(id), true) }] : []),
+    ...(!jivo && can('ADMIN_USER_PASSWORD','password') ? [{ icon: 'lockKeyhole' as const, label: 'Set password', a11y: 'Set password', onPress: () => setSettingPassword(true) }] : []),
     { icon: 'logout', label: 'Sign out of all devices', a11y: 'Revoke all person sessions', onPress: () => ask(`Sign ${u.name} out of all devices?`, 'They will need to sign in again everywhere.', 'Sign out', () => admin.revokeUserSessions(id)) },
     u.is_active ? { icon: 'power', label: 'Deactivate', a11y: 'Deactivate person', onPress: () => ask(`Deactivate ${u.name}?`, 'They are signed out everywhere and cannot sign in until reactivated.', 'Deactivate', () => admin.userAction(id, 'deactivate'), true) }
       : { icon: 'power', label: 'Activate', a11y: 'Reactivate person', onPress: () => ask(`Reactivate ${u.name}?`, 'They can sign in again.', 'Activate', () => admin.userAction(id, 'activate')) },
     { icon: 'trash2', label: 'Delete account', a11y: 'Delete person', danger: true, separator: true, onPress: () => ask(`Delete ${u.name}?`, 'They are signed out and hidden from people lists. The account can be restored from the Deleted list.', 'Delete', () => admin.deleteUser(id), true, onClose) },
-  ]
-  const linkButton = u.is_deleted ? <IconTextButton icon="rotateCcw" title="Restore account" accessibilityLabel="Restore person" onPress={() => ask('Restore this deleted person?', 'They get their account back with the access they had.', 'Restore', () => admin.userAction(id, 'restore'))} />
-    : !jivo && u.status === 'invited' ? <IconTextButton variant="secondary" icon="link2" title="Invitation link" accessibilityLabel="Generate invitation link" onPress={() => void op.run(() => admin.inviteLink(id))} />
-      : !isSelf && !jivo ? <IconTextButton variant="secondary" icon="key" title="Password reset link" accessibilityLabel="Generate password reset link" onPress={() => void op.run(() => admin.resetLink(id))} /> : null
+  ].filter(item => item.a11y === 'Revoke all person sessions' ? can('ADMIN_USER_SESSIONS','sessions') : ['Deactivate person','Reactivate person'].includes(item.a11y) ? can('ADMIN_USER_DEACTIVATE','deactivate') : item.a11y === 'Delete person' ? can('ADMIN_USER_DELETE','delete') : true) as MenuEntry[]
+  const linkButton = u.is_deleted && can('ADMIN_USER_DELETE','delete') ? <IconTextButton icon="rotateCcw" title="Restore account" accessibilityLabel="Restore person" onPress={() => ask('Restore this deleted person?', 'They get their account back with the access they had.', 'Restore', () => admin.userAction(id, 'restore'))} />
+    : !u.is_deleted && !jivo && u.status === 'invited' && can('ADMIN_USER_INVITE') ? <IconTextButton variant="secondary" icon="link2" title="Invitation link" accessibilityLabel="Generate invitation link" onPress={() => void op.run(() => admin.inviteLink(id))} />
+      : !u.is_deleted && !isSelf && !jivo && can('ADMIN_USER_PASSWORD','password') ? <IconTextButton variant="secondary" icon="key" title="Password reset link" accessibilityLabel="Generate password reset link" onPress={() => void op.run(() => admin.resetLink(id))} /> : null
   const muted = { fontFamily: 'Inter_400Regular', color: c.muted } as const
   return <View style={{ gap: 16 }}>
     {back}
+    {stateAction && <AccountStateDialog key={stateAction} user={u} action={stateAction} onClose={() => setStateAction(null)} onDone={refresh} />}
+    {admin.isFrozen(u) && <Badge tone="info">Frozen</Badge>}{!!u.blocked_at && <Badge tone="danger">Messaging blocked</Badge>}
     <Card style={{ zIndex: 20, padding: sm ? 20 : 16, gap: 16, flexDirection: sm ? 'row' : 'column', alignItems: sm ? 'center' : 'stretch' }}>
       <View style={{ flex: sm ? 1 : undefined, minWidth: 0, flexDirection: 'row', alignItems: sm ? 'center' : 'flex-start', gap: sm ? 16 : 12 }}>
         <ChatAvatar name={u.name} seed={u.id} size={56} />
@@ -198,7 +203,7 @@ export function PersonDetail({ id, onClose, onChanged }: { id: string; onClose: 
               u.locked_out && <Badge key="l" tone="danger">Sign-in restricted on some addresses</Badge>, isSelf && <Badge key="y">You</Badge>].filter(Boolean).map((b, i) => <View key={i} style={{ alignSelf: 'center' }}>{b}</View>)}
           </View>
           <Text numberOfLines={sm ? 1 : undefined} style={{ ...muted, fontSize: 14, lineHeight: 20 }}>{u.email}</Text>
-          {!!u.pending_email && !u.is_deleted && !jivo && <View style={{ marginTop: 8, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, borderRadius: radius.control, backgroundColor: c.warningSoft, paddingHorizontal: 12, paddingVertical: 8 }}>
+          {!!u.pending_email && !u.is_deleted && !jivo && can('ADMIN_USER_EMAIL') && <View style={{ marginTop: 8, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, borderRadius: radius.control, backgroundColor: c.warningSoft, paddingHorizontal: 12, paddingVertical: 8 }}>
             <Text style={{ flex: 1, minWidth: 160, fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20, color: c.text }}>Asked to change their email to <Text style={{ fontFamily: 'Inter_600SemiBold', fontWeight: '600' }}>{u.pending_email}</Text>{u.pending_email_requested_at ? ` (${formatRelative(u.pending_email_requested_at)})` : ''}.</Text>
             <IconTextButton size="sm" title="Confirm" accessibilityLabel="Approve email change" onPress={() => void op.run(() => admin.decideEmailChange(id, 'approve'), refresh)} />
             <IconTextButton size="sm" variant="ghost" title="Refuse" accessibilityLabel="Reject email change" onPress={() => void op.run(() => admin.decideEmailChange(id, 'reject'), refresh)} />
@@ -215,19 +220,19 @@ export function PersonDetail({ id, onClose, onChanged }: { id: string; onClose: 
     <Section title="Details"><Details key={[u.full_name, u.display_name, u.employee_code, u.phone].join('|')} user={u} onSaved={refresh} /></Section>
     {manages && <Section title="Access"><Access key={u.groups.join('|')} user={u} isSelf={isSelf} onSaved={refresh} /></Section>}
     <Section title="Effective permissions"><Permissions user={u} /></Section>
-    {!u.is_deleted && manages && <Surface style={{ padding: 20, overflow: 'visible' }}>
+    {!u.is_deleted && can('ADMIN_CHAT_POLICY') && <Surface style={{ padding: 20, overflow: 'visible' }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Icon name="messagesSquare" size={16} color={c.brand} /><Text accessibilityRole="header" style={{ fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 16, lineHeight: 24, color: c.text }}>Communication access</Text></View>
       <Text style={{ ...muted, marginTop: 2, marginBottom: 16, fontSize: 14, lineHeight: 20 }}>Who {u.name} can chat with. Applies both ways, on every device, and is enforced by the server.</Text>
       <PersonChat id={id} isSelf={isSelf} />
     </Surface>}
-    {!u.is_deleted && <Devices id={id} />}
+    {!u.is_deleted && can('ADMIN_USER_SESSIONS','sessions') && <Devices id={id} />}
     {/* The reference hides Companies on this page; memberships stay reachable here, last, for organisations that use them. */}
-    {manages && u.companies.length > 0 && <Section title="Companies"><PersonCompanies user={u} onChanged={refresh} /></Section>}
+    {can('ADMIN_MEMBERSHIP_MANAGE') && u.companies.length > 0 && <Section title="Companies"><PersonCompanies user={u} onChanged={refresh} /></Section>}
     <Sheet visible={!!confirm} onClose={() => { if (!op.busy) setConfirm(null) }} title={confirm?.title} description={confirm?.body}
       footer={<View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
         <Button title="Cancel" accessibilityLabel="Cancel person action" variant="secondary" disabled={op.busy} onPress={() => setConfirm(null)} />
         <Button title={confirm?.label ?? 'Confirm'} accessibilityLabel="Confirm person action" disabled={op.busy} style={confirm?.danger ? { backgroundColor: c.dangerFill } : undefined}
-          onPress={() => { const current = confirm; if (!current) return; void op.run(async () => { if (!me?.capabilities.includes('ADMIN_USERS')) throw Error('People administration is no longer enabled.'); return current.action() }, () => { setConfirm(null); refresh(); current.after?.() }) }} />
+          onPress={() => { const current = confirm; if (!current) return; void op.run(async () => { return current.action() }, () => { setConfirm(null); refresh(); current.after?.() }) }} />
       </View>} />
     <Sheet visible={settingPassword} onClose={() => setSettingPassword(false)} title={`Set a password for ${u.name}`} closeLabel="Close set password">
       <AdminPassword key={u.id} user={u} onChanged={refresh} />

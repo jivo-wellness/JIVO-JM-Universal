@@ -1,0 +1,16 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+group = 'expo.modules.pasteinput'
+version = '0.2.2'
+android {
+  namespace 'expo.modules.pasteinput'
+  defaultConfig {
+    versionCode 1
+    versionName '0.2.2'
+  }
+}
+dependencies {
+  implementation 'androidx.core:core-ktx:1.17.0'
+}

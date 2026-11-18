@@ -39,7 +39,7 @@ export function ChatMediaViewer({ items, index, onIndex, onClose, onShare }: { i
   const next = hasNext ? () => onIndex(index + 1) : undefined
   if (!item) return null
   const a = item.attachment
-  const uri = a.kind === 'image' ? mediaUrl(a.preview_url || a.download_url, origin) : null
+  const uri = a.kind === 'image' ? mediaUrl(a.mime === 'image/gif' ? a.download_url : a.preview_url || a.download_url, origin) : null
   const when = `${dayLabel(item.createdAt)}, ${clockTime(item.createdAt)}`
   return <Modal visible onRequestClose={onClose} animationType="fade" presentationStyle="fullScreen" statusBarTranslucent>
     <View style={{ flex: 1, backgroundColor: '#000000', paddingTop: inset.top, paddingBottom: inset.bottom }}>

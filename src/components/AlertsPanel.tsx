@@ -5,7 +5,7 @@ import * as alerts from '../modules/notifications/api'
 import { useCursor } from '../shared/useCursor'
 import { useSession } from '../core/auth/Session'
 import { errorMessage } from '../core/api/client'
-import { Button, Card, EmptyState, Field, Label, Spinner, Surface, useColors } from '../ui'
+import { Button, Card, EmptyState, Field, Label, Spinner, ListSection as Surface, useColors } from '../ui'
 import { Badge, Muted, PillTabs, SeverityDot, ToolButton, relative } from './InboxVaultKit'
 import { Sheet } from './Sheet'
 function AlertComposer({ onClose, onSent }: { onClose: () => void; onSent: () => void }) {
@@ -26,16 +26,16 @@ function AlertComposer({ onClose, onSent }: { onClose: () => void; onSent: () =>
   </Sheet>
 }
 export function AlertsPanel() {
-  const c = useColors(); const { me } = useSession(); const canSend = me?.capabilities.includes('JM_SEND_ALERT') ?? false
+  const c = useColors(); const { me } = useSession(); const canSend = me?.capabilities.includes('JM_ALERT_SEND') ?? false; const canManage = me?.capabilities.includes('JM_ALERT_MANAGE') ?? false; const canListSent = canSend || canManage
   const [scope, setScope] = useState<'active' | 'history' | 'sent'>('active'); const [composer, setComposer] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState('')
   const [confirm, setConfirm] = useState<{ title: string; action: () => Promise<unknown> } | null>(null)
-  const load = useCallback(async (cursor?: string | null) => scope === 'sent' && canSend ? alerts.adminAlerts(cursor) : scope === 'history' ? alerts.alertHistory(cursor) : { results: await alerts.activeAlerts(), next_cursor: null }, [scope, canSend]); const page = useCursor(load)
+  const load = useCallback(async (cursor?: string | null) => scope === 'sent' && canListSent ? alerts.adminAlerts(cursor) : scope === 'history' ? alerts.alertHistory(cursor) : { results: await alerts.activeAlerts(), next_cursor: null }, [scope, canListSent]); const page = useCursor(load)
   const refresh = page.refresh
   useEffect(() => realtime.on('*', frame => { if (frame.type === 'RESYNC' || frame.type.startsWith('ALERT_')) void refresh() }), [refresh])
   async function run(action: () => Promise<unknown>) { if (busy) return; setBusy(true); setError(''); try { await action(); setConfirm(null); await page.refresh() } catch (e) { setError(errorMessage(e)) } finally { setBusy(false) } }
   return <View style={{ gap: 12 }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-      <PillTabs label="Alert views" value={scope} onChange={setScope} tabs={[{ value: 'active', label: 'Active', accessibilityLabel: scope === 'active' ? 'Active alerts selected' : 'Active alerts' }, { value: 'history', label: 'History', accessibilityLabel: scope === 'history' ? 'Alert history selected' : 'Alert history' }, ...(canSend ? [{ value: 'sent' as const, label: 'Sent', accessibilityLabel: scope === 'sent' ? 'Sent alerts selected' : 'Sent alerts' }] : [])]} />
+      <PillTabs label="Alert views" value={scope} onChange={setScope} tabs={[{ value: 'active', label: 'Active', accessibilityLabel: scope === 'active' ? 'Active alerts selected' : 'Active alerts' }, { value: 'history', label: 'History', accessibilityLabel: scope === 'history' ? 'Alert history selected' : 'Alert history' }, ...(canListSent ? [{ value: 'sent' as const, label: 'Sent', accessibilityLabel: scope === 'sent' ? 'Sent alerts selected' : 'Sent alerts' }] : [])]} />
       {canSend && <View style={{ marginLeft: 'auto', marginBottom: 16 }}><ToolButton variant="primary" icon="plus" label="New alert" a11y="Compose alert" disabled={busy} onPress={() => setComposer(true)} /></View>}
     </View>
     {!!(error || page.error) && <Text accessibilityRole="alert" style={{ color: c.danger, fontSize: 14, textAlign: 'center' }}>{error || page.error}</Text>}
@@ -50,11 +50,11 @@ export function AlertsPanel() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}><Badge tone={alert.severity === 'critical' ? 'danger' : alert.severity === 'warning' ? 'warning' : 'info'}>{alert.severity}</Badge><Badge tone={alert.status === 'active' ? 'brand' : 'neutral'}>{alert.status}</Badge><Muted>{relative(alert.created_at)}</Muted></View>
         </View>
         {scope !== 'sent' && alert.dismissible && !alert.dismissed_at && alert.status === 'active' && <ToolButton label="Dismiss" a11y={`Dismiss ${alert.title}`} disabled={busy} onPress={() => void run(() => alerts.dismissAlert(alert.id))} />}
-        {scope === 'sent' && canSend && <ToolButton danger label={alert.status === 'active' ? 'Cancel' : 'Remove'} a11y={`${alert.status === 'active' ? 'Cancel' : 'Remove'} sent alert ${alert.title}`} disabled={busy} onPress={() => setConfirm({ title: `${alert.status === 'active' ? 'Cancel this active alert for recipients' : 'Remove this alert from the sent list'}?`, action: () => alert.status === 'active' ? alerts.cancelAlert(alert.id) : alerts.deleteAlert(alert.id) })} />}
+        {scope === 'sent' && canManage && <ToolButton danger label={alert.status === 'active' ? 'Cancel' : 'Remove'} a11y={`${alert.status === 'active' ? 'Cancel' : 'Remove'} sent alert ${alert.title}`} disabled={busy} onPress={() => setConfirm({ title: `${alert.status === 'active' ? 'Cancel this active alert for recipients' : 'Remove this alert from the sent list'}?`, action: () => alert.status === 'active' ? alerts.cancelAlert(alert.id) : alerts.deleteAlert(alert.id) })} />}
       </View>)}
       {page.cursor && <View style={{ alignItems: 'center', padding: 8 }}><Button variant="ghost" size="sm" title="More alerts" disabled={page.loading} onPress={() => void page.more()} /></View>}
     </Surface>
-    {composer && <AlertComposer onClose={() => setComposer(false)} onSent={() => { setComposer(false); setScope('sent'); void page.refresh() }} />}
+    {composer && canSend && <AlertComposer onClose={() => setComposer(false)} onSent={() => { setComposer(false); setScope('sent'); void page.refresh() }} />}
     <Sheet visible={Boolean(confirm)} onClose={() => { if (!busy) setConfirm(null) }}><Label large>{confirm?.title}</Label><View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}><Button variant="secondary" title="Cancel alert change" disabled={busy} onPress={() => setConfirm(null)} /><Button variant="danger" title="Confirm alert change" disabled={busy} onPress={() => { if (confirm) void run(confirm.action) }} /></View></Sheet>
   </View>
 }

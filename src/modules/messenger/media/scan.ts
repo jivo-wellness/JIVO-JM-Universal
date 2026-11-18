@@ -36,7 +36,7 @@ export function awaitScan(upload: Attachment, deps: Dependencies, signal: AbortS
       }
       if (!done) poll = setTimeout(() => void check(), 2000)
     }
-    poll = setTimeout(() => void check(), 2000)
+    void check()
     timer = setTimeout(() => finish(undefined, Object.assign(new Error('The file is still being checked. Retrying automatically.'), { retryable: true })), timeout)
   })
 }

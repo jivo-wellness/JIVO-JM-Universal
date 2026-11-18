@@ -1,3 +1,4 @@
+import { withOversightAvailability } from '../../config/capabilities'
 import { clearVaultSession } from '../../modules/passwords/session'
 import { webPush } from '../../modules/notifications/webPush'
 import { incomingShareBoundary } from '../../modules/sharing/incoming'
@@ -29,7 +30,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [controller] = useState(() => new SessionController({
     boundary: preserve => { clearVaultSession(); void webPush.bind(null); if (!preserve && external.current.owner) { incomingShareBoundary(); external.current.owner = null } advanceSession(); chatLock.bind(null); conversationDrafts.bind(null); void conversationCache.bind(null, undefined, preserve); void favouriteStickers.bind(null, preserve); outbox.setActive(false); void outbox.bind(null, !preserve&&!external.current.active); if(!preserve&&!external.current.active)announceSessionBoundary() }, enabled: Boolean(origin), csrf: () => api.get('/auth/csrf/'),
     // Passwords and Oversight only with two-step verification on and a verified session (BE-110).
-    me: async () => withTwoStepRule((await api.get<Me>('/me/')).data),
+    me: async () => withTwoStepRule(withOversightAvailability((await api.get<Me>('/me/')).data)),
     login: (email, password) => withSessionLock(async()=>{try{return (await api.post<LoginResponse>('/auth/login/', { email, password })).data}finally{announceSessionBoundary()}}),
     logout: () => withSessionLock(async()=>{try{return await api.post('/auth/logout/')}finally{announceSessionBoundary()}}),
     clear: () => origin ? clearNativeCookies(origin) : Promise.resolve(),

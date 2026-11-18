@@ -11,7 +11,8 @@ describe('upload scanner boundary', () => {
     const off = vi.fn(); const done = vi.fn()
     const promise = awaitScan(upload, { read, subscribe: () => off }, new AbortController().signal).then(done)
     expect(done).not.toHaveBeenCalled()
-    await vi.advanceTimersByTimeAsync(2000); await promise
+    await promise
+    expect(read).toHaveBeenCalledOnce()
     expect(done.mock.calls[0][0].status).toBe('ready'); expect(off).toHaveBeenCalledOnce()
   })
   it('rejects scanned rejections', async () => {
@@ -22,7 +23,7 @@ describe('upload scanner boundary', () => {
     const abort = new AbortController(); const read = vi.fn(); const off = vi.fn()
     const promise = awaitScan(upload, { read, subscribe: () => off }, abort.signal)
     const assertion = expect(promise).rejects.toThrow('cancelled'); abort.abort(); await assertion
-    await vi.advanceTimersByTimeAsync(200000); expect(off).toHaveBeenCalledOnce(); expect(read).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(200000); expect(off).toHaveBeenCalledOnce(); expect(read).toHaveBeenCalledOnce()
   })
   it('stops waiting at once when the server says the file was not virus-scanned', async () => {
     const refused = Object.assign(new Error('Request failed with status code 409'), { response: { status: 409, data: { code: 'upload_not_scanned', detail: 'This file was not virus-scanned.' } } })

@@ -10,13 +10,47 @@ export function useConversationLive(conversation: ConversationItem | null, me: s
  const [snapshot,setSnapshot]=useState<{ id:string; members:Member[]; presence:Presence | null; typing:Record<string,number> }>({id:'',members:[],presence:null,typing:{}})
  const [now,setNow]=useState(() => Date.now()); const lastStart=useRef(0); const started=useRef(false); const visible=useRef(true);const idle=useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
  const stop=useCallback(()=>{clearTimeout(idle.current);if(started.current && id)realtime.send('TYPING',{conversation:id,state:'stop'});started.current=false;lastStart.current=0},[id])
- useEffect(()=>{let active=true;let generation=0
-  const clear=()=>{generation++;setSnapshot({id:id??'',members:[],presence:null,typing:{}})}
-  const load=()=>{if(!id||!visible.current)return;const token=++generation;void Promise.all([listMembers(id),peer?api.get<{results:Record<string,Presence>}>('/users/presence/',{params:{ids:peer}}).then(r=>r.data.results[peer]??null):Promise.resolve(null)]).then(([members,presence])=>{if(active&&generation===token&&visible.current)setSnapshot(old=>({id,members,presence,typing:old.id===id?old.typing:{}}))}).catch(()=>{/* Optional presence never blocks chat. */})}
-  const off=realtime.on<{conversation?:string;user?:string;last_seen_at?:string}>('*',({type,data})=>{if(!active||!id||!visible.current)return;if(type==='RESYNC'){clear();load();return}if(type==='MEMBER_REMOVED'||type==='MEMBER_ADDED'||type==='MEMBER_ROLE_CHANGED'){if(data?.conversation===id)load();return}if(!data?.user)return;if((type==='TYPING_STARTED'||type==='TYPING_STOPPED')&&data.conversation===id&&data.user!==me){setNow(Date.now());setSnapshot(old=>old.id===id?{...old,typing:{...old.typing,[data.user!]:type==='TYPING_STARTED'?Date.now()+6000:0}}:old)}if(data.user===peer&&(type==='USER_ONLINE'||type==='USER_OFFLINE'))setSnapshot(old=>old.id===id?{...old,presence:{online:type==='USER_ONLINE',last_seen_at:data.last_seen_at??null}}:old)})
-  const lifecycle=subscribeSensitiveView(value=>{visible.current=value;if(!value){stop();clear()}else load()})
-  return()=>{active=false;generation++;off();lifecycle();stop()}
- },[id,peer,me,stop])
+ useEffect(() => {
+  let active = true; let generation = 0; let presenceRevision = 0; let loadingPresence = false
+  const clear = () => { generation++; presenceRevision++; setSnapshot({ id: id ?? '', members: [], presence: null, typing: {} }) }
+  const loadMembers = () => {
+   if (!id || !visible.current) return
+   const token = generation
+   void listMembers(id).then(members => {
+    if (active && generation === token && visible.current) setSnapshot(old => ({ ...old, id, members }))
+   }).catch(() => {})
+  }
+  const loadPresence = () => {
+   if (!id || !peer || !visible.current || loadingPresence) return
+   loadingPresence = true
+   const token = generation; const revision = presenceRevision
+   void api.get<{ results: Record<string, Presence> }>('/users/presence/', { params: { ids: peer } }).then(({ data }) => {
+    if (active && generation === token && revision === presenceRevision && visible.current) {
+     setSnapshot(old => ({ ...old, id, presence: data.results[peer] ?? null }))
+    }
+   }).catch(() => {}).finally(() => { loadingPresence = false })
+  }
+  const off = realtime.on<{ conversation?: string; user?: string; last_seen_at?: string }>('*', ({ type, data }) => {
+   if (!active || !id || !visible.current) return
+   if (type === 'RESYNC' || type === 'HELLO') { loadMembers(); loadPresence(); return }
+   if (type === 'MEMBER_REMOVED' || type === 'MEMBER_ADDED' || type === 'MEMBER_ROLE_CHANGED') { if (data?.conversation === id) loadMembers(); return }
+   if (!data?.user) return
+   if ((type === 'TYPING_STARTED' || type === 'TYPING_STOPPED') && data.conversation === id && data.user !== me) {
+    setNow(Date.now())
+    setSnapshot(old => ({ ...old, id, typing: { ...old.typing, [data.user!]: type === 'TYPING_STARTED' ? Date.now() + 6000 : 0 } }))
+   }
+   if (data.user === peer && (type === 'USER_ONLINE' || type === 'USER_OFFLINE')) {
+    presenceRevision++
+    setSnapshot(old => ({ ...old, id, presence: { online: type === 'USER_ONLINE', last_seen_at: data.last_seen_at ?? null } }))
+   }
+  })
+  const lifecycle = subscribeSensitiveView(value => {
+   visible.current = value
+   if (!value) { stop(); clear() } else { loadMembers(); loadPresence() }
+  })
+  const timer = setInterval(loadPresence, 15_000)
+  return () => { active = false; generation++; off(); lifecycle(); clearInterval(timer); stop() }
+ }, [id, peer, me, stop])
  // Tick every second only while someone is typing (expiry); otherwise once a minute for the last-seen label.
  // A constant 1 s tick re-rendered the whole messenger (and every chat row) while idle.
  const typingActive=Object.values(snapshot.typing).some(until=>until>now)

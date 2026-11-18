@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View, type ViewStyle } from 'react-native'
+import { ActivityIndicator, FlatList, Platform, Pressable, Text, View, type ViewStyle } from 'react-native'
 import { router } from 'expo-router'
 import { useSession } from '../../core/auth/Session'
+import { ChatComposer } from '../../components/ChatComposer'
 import { AtlasIcon } from '../../components/AtlasIcon'
 import { Icon } from '../../components/Icon'
-import { useChatImmersive } from '../../components/WorkspaceChrome'
+
 import { Button, EmptyState, Spinner, radius, useColors, type Colors } from '../../ui'
 import { formatDateTime } from '../../shared/utils/format'
 import { ATLAS_MAX_CHARS, answerView, canSend, counter, quote, type Ask } from './model'
@@ -19,15 +20,15 @@ const time = (value: string | null) => { if (!value) return ''; const d = new Da
  * Ask Atlas: a private one-to-one thread with JIVO's business AI, laid out like a chat. Questions are on the
  * right, Atlas answers on the left. Text only (no attachments). Answers are shown only to the person who asked.
  */
-export function AtlasScreen() {
+export function AtlasScreen({ onBack }: { onBack?: () => void } = {}) {
   const { me } = useSession()
   if (!me) return <Spinner label="Loading Atlas" />
-  return <AtlasThreadView key={me.id} user={me.id} />
+  return <AtlasThreadView key={me.id} user={me.id} onBack={onBack} />
 }
 
-function AtlasThreadView({ user }: { user: string }) {
+function AtlasThreadView({ user, onBack }: { user: string; onBack?: () => void }) {
   const c = useColors()
-  useChatImmersive(true)
+
   const status = useAtlasStatusEntry()
   const offline = useOffline()
   const allowed = !!status.value?.enabled && !!status.value.allowed
@@ -50,7 +51,7 @@ function AtlasThreadView({ user }: { user: string }) {
   }
 
   const header = <View style={{ minHeight: 60, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.shell }}>
-    <Pressable accessibilityRole="button" accessibilityLabel="Back to chats" onPress={() => router.canGoBack() ? router.back() : router.replace('/messenger')} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22, ...pointer }}><Icon name="back" size={22} color={c.text} /></Pressable>
+    <Pressable accessibilityRole="button" accessibilityLabel="Back to chats" onPress={() => onBack ? onBack() : router.canGoBack() ? router.back() : router.replace('/messenger')} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22, ...pointer }}><Icon name="back" size={22} color={c.text} /></Pressable>
     <View style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: c.dark ? '#18232e' : '#ffffff' }}><AtlasIcon size={36} /></View>
     <View style={{ flex: 1, minWidth: 0 }}>
       <Text accessibilityRole="header" numberOfLines={1} style={{ fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 16, lineHeight: 22, color: c.text }}>Atlas</Text>
@@ -66,7 +67,7 @@ function AtlasThreadView({ user }: { user: string }) {
 
   const older = thread.hasMore ? <View style={{ alignItems: 'center', paddingVertical: 12 }}><Button variant="secondary" size="sm" title="Load older" loading={thread.loadingOlder} disabled={offline} onPress={() => void thread.thread.loadOlder()} /></View> : <View style={{ height: 12 }} />
 
-  return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+  return <View style={{ flex: 1 }}>
     {header}
     <View style={{ flex: 1, backgroundColor: chatTint(c) }}>
       {!!thread.error && <Text accessibilityLiveRegion="polite" style={{ paddingHorizontal: 16, paddingVertical: 8, color: c.muted, fontSize: 12, lineHeight: 17, backgroundColor: c.panel, borderBottomWidth: 1, borderBottomColor: c.border }}>{thread.error}</Text>}
@@ -94,21 +95,13 @@ function AtlasThreadView({ user }: { user: string }) {
         </View>
         <Pressable accessibilityRole="button" accessibilityLabel="Cancel follow-up" onPress={() => setReplyTo(null)} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', ...pointer }}><Icon name="x" size={16} color={c.muted} /></Pressable>
       </View>}
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
-        <View style={{ flex: 1, borderRadius: 22, borderWidth: 1, borderColor: count.over ? c.danger : c.border, backgroundColor: web ? c.input : c.panel, paddingHorizontal: 14, paddingVertical: 6 }}>
-          <TextInput value={draft} onChangeText={value => { setDraft(value); if (thread.sendError && !thread.sendError.retryable) thread.thread.clearSendError() }} multiline editable={allowed}
-            placeholder={offline ? 'Offline' : 'Ask Atlas'} placeholderTextColor={c.muted} accessibilityLabel="Question for Atlas" selectionColor={c.brand} cursorColor={c.brand}
-            onKeyPress={event => { const e = event.nativeEvent as { key?: string; shiftKey?: boolean }; if (web && e.key === 'Enter' && !e.shiftKey) { (event as unknown as { preventDefault?: () => void }).preventDefault?.(); void send() } }}
-            style={{ minHeight: 32, maxHeight: 140, fontFamily: 'Inter_400Regular', fontSize: 15, lineHeight: 21, color: c.text, paddingVertical: 4, ...(web ? ({ outlineStyle: 'none' } as object) : {}) }} />
-          <Text accessibilityLabel={`${count.count} of ${ATLAS_MAX_CHARS} characters`} style={{ alignSelf: 'flex-end', fontSize: 11, lineHeight: 14, color: count.over ? c.danger : count.near ? c.warning : c.muted }}>{count.label}</Text>
-        </View>
-        <Pressable accessibilityRole="button" accessibilityLabel="Send to Atlas" accessibilityState={{ disabled: sendDisabled, busy: thread.sending }} disabled={sendDisabled} onPress={() => void send()}
-          style={({ pressed }) => ({ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: c.primary, opacity: sendDisabled ? 0.5 : pressed ? 0.85 : 1, ...pointer })}>
-          {thread.sending ? <ActivityIndicator color="#ffffff" /> : <Icon name="sendHorizontal" size={22} color="#ffffff" />}
-        </Pressable>
-      </View>
+      <Text accessibilityLiveRegion="polite" accessibilityLabel={`${count.count} of ${ATLAS_MAX_CHARS} characters`} style={{ alignSelf: 'flex-end', fontSize: 11, color: count.over ? c.danger : c.muted }}>{count.over ? `Shorten your message to ${ATLAS_MAX_CHARS} characters. ` : ''}{count.label}</Text>
     </View>
-  </KeyboardAvoidingView>
+    <ChatComposer
+      inputProps={{ value: draft, onChangeText: value => { setDraft(value); if (thread.sendError && !thread.sendError.retryable) thread.thread.clearSendError() }, placeholder: 'Ask Atlas', accessibilityLabel: 'Question for Atlas' }}
+      disabled={!allowed} sendDisabled={sendDisabled} sendLabel="Send to Atlas" onSend={() => void send()}
+    />
+  </View>
 }
 
 function Line({ icon, text, c, danger = false }: { icon: 'wifiOff' | 'alert'; text: string; c: Colors; danger?: boolean }) {

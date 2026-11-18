@@ -48,3 +48,28 @@ it('permits initial content when the device lock preference is off', async () =>
  const { model } = fixture(false); await model.restore()
  expect(model.snapshot()).toMatchObject({ opened: true, locked: false })
 })
+
+it('automatically prompts once per foreground session and allows manual retry after cancellation', async () => {
+ const { model, deps } = fixture(); await model.restore()
+ deps.authenticate.mockResolvedValueOnce(false)
+ await model.foreground(); await model.foreground()
+ expect(deps.authenticate).toHaveBeenCalledTimes(1)
+ expect(model.snapshot().locked).toBe(true)
+ await model.verify(); expect(model.snapshot().locked).toBe(false)
+ model.background(); await model.foreground()
+ expect(deps.authenticate).toHaveBeenCalledTimes(2)
+ expect(model.snapshot().locked).toBe(false)
+})
+it('does not prompt automatically when lock is disabled or restore has not completed', async () => {
+ const { model, deps } = fixture(false)
+ await model.foreground(); await model.restore(); await model.foreground()
+ expect(deps.authenticate).not.toHaveBeenCalled()
+})
+
+it('keeps an unlocked session across short picker trips but prompts after five minutes', async () => {
+ let now = 0; const deps = fixture().deps; const model = new NativeAppLock(deps, () => now)
+ await model.restore(); await model.foreground(); model.background(); now = 1000; await model.foreground()
+ expect(deps.authenticate).toHaveBeenCalledTimes(1)
+ await model.restore(); await model.foreground(); expect(deps.authenticate).toHaveBeenCalledTimes(1)
+ model.background(); now += 300000; await model.foreground(); expect(deps.authenticate).toHaveBeenCalledTimes(2)
+})

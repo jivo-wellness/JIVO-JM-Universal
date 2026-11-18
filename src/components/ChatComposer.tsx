@@ -1,3 +1,4 @@
+import { KeyboardMediaInput } from './KeyboardMediaInput'
 import { MicButton, RecordingBar, VoiceNotice, VoiceReview, useVoiceMessage } from './VoiceRecorder'
 import { AttachMenu, type AttachActions } from './attach/AttachMenu'
 import type { PickedFile } from '../modules/messenger/media/model'
@@ -35,7 +36,8 @@ type Panel = 'none' | 'emoji' | 'search' | 'sticker-search'
  * microphone while nothing is typed and Send otherwise. The composer keeps itself (and so the chat above it) directly
  * over the on-screen keyboard, and the emoji panel (Emoji | Stickers) takes the keyboard's place at the same height.
  */
-export function ChatComposer({ inputProps, onSend, sendLabel = 'Send message', sendDisabled, disabled = false, onTools, attach, onVoice, onSticker }: {
+export function ChatComposer({ inputProps, onSend, sendLabel = 'Send message', sendDisabled, disabled = false, onTools, attach, onVoice, onSticker, onKeyboardMedia }: {
+  onKeyboardMedia?: (uris: string[]) => void
   inputProps: TextInputProps
   onSend: () => void
   sendLabel?: string
@@ -98,7 +100,7 @@ export function ChatComposer({ inputProps, onSend, sendLabel = 'Send message', s
         : recording ? <RecordingBar voice={voice} />
           : <View ref={plus} collapsable={false} style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-end', borderRadius: 26, borderWidth: 1, borderColor: c.border, backgroundColor: c.panel, paddingHorizontal: 4, paddingVertical: 2, boxShadow: '0 1px 1px rgba(15, 23, 42, 0.06)' }}>
             <RoundButton label={panel === 'emoji' ? 'Show keyboard' : 'Emoji'} disabled={disabled} expanded={panel === 'emoji'} onPress={() => { if (panel === 'emoji') showKeyboard(); else showEmoji() }}><Icon name={panel === 'emoji' ? 'keyboard' : 'smile'} size={24} color={c.muted} /></RoundButton>
-            <View style={{ flex: 1, minWidth: 0 }}><Field inset={false} {...inputProps} ref={input} onFocus={event => { if (panel !== 'none') { setPanel('none'); setAwaitingKeyboard(!web) } inputProps.onFocus?.(event) }} onSelectionChange={event => { caret.current = event.nativeEvent.selection; inputProps.onSelectionChange?.(event) }} onKeyPress={event => { inputProps.onKeyPress?.(event); if (!web) return; const key = event.nativeEvent as unknown as { key: string; shiftKey?: boolean; isComposing?: boolean }; if (!enterSends(key, coarsePointer())) return; (event as unknown as { preventDefault?: () => void }).preventDefault?.(); if (!disabled && !sendDisabled) onSend() }} compact label="Message" placeholder={inputProps.placeholder ?? 'Message'} multiline numberOfLines={web ? 1 : undefined} editable={!disabled && inputProps.editable !== false} style={[{ borderWidth: 0, borderRadius: 20, boxShadow: 'none', maxHeight: 132, minHeight: 40, paddingLeft: 6, paddingRight: 6, paddingTop: 10, paddingBottom: 10, fontSize: 16, lineHeight: 22, backgroundColor: 'transparent' }, inputProps.style]} /></View>
+            <KeyboardMediaInput onMedia={!disabled ? onKeyboardMedia : undefined}><Field inset={false} {...inputProps} ref={input} onFocus={event => { if (panel !== 'none') { setPanel('none'); setAwaitingKeyboard(!web) } inputProps.onFocus?.(event) }} onSelectionChange={event => { caret.current = event.nativeEvent.selection; inputProps.onSelectionChange?.(event) }} onKeyPress={event => { inputProps.onKeyPress?.(event); if (!web) return; const key = event.nativeEvent as unknown as { key: string; shiftKey?: boolean; isComposing?: boolean }; if (!enterSends(key, coarsePointer())) return; (event as unknown as { preventDefault?: () => void }).preventDefault?.(); if (!disabled && !sendDisabled) onSend() }} compact label="Message" placeholder={inputProps.placeholder ?? 'Message'} multiline numberOfLines={web ? 1 : undefined} editable={!disabled && inputProps.editable !== false} style={[{ borderWidth: 0, borderRadius: 20, boxShadow: 'none', maxHeight: 132, minHeight: 40, paddingLeft: 6, paddingRight: 6, paddingTop: 10, paddingBottom: 10, fontSize: 16, lineHeight: 22, backgroundColor: 'transparent' }, inputProps.style]} /></KeyboardMediaInput>
             {attach ? <View><RoundButton label="Attach" disabled={disabled} expanded={!!anchor} onPress={openAttach}><Icon name="paperclip" size={22} color={anchor ? c.brand : c.muted} /></RoundButton></View>
               : onTools && <RoundButton label="Message tools" disabled={disabled} onPress={onTools}><Icon name="paperclip" size={22} color={c.muted} /></RoundButton>}
             {attach && sendDisabled && <RoundButton label="Camera" disabled={disabled || !attach.canSendFile} onPress={attach.onCamera}><Icon name="camera" size={23} color={c.muted} /></RoundButton>}

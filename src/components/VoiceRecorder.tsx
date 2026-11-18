@@ -68,7 +68,7 @@ export function useVoiceMessage({ disabled, onSend }: { disabled: boolean; onSen
       else if (move === 'lock') lock()
     },
     onPanResponderRelease: () => finish(),
-    onPanResponderTerminate: () => finish(),
+    onPanResponderTerminate: () => cancel(),
     onPanResponderTerminationRequest: () => false,
   })
   const finish = () => {
@@ -132,7 +132,7 @@ export function VoiceReview({ voice, disabled }: { voice: VoiceMessage; disabled
   const durationMs = status.duration > 0 ? status.duration * 1000 : voice.durationMs
   const position = status.currentTime * 1000
   const progress = durationMs ? Math.min(1, position / durationMs) : 0
-  const toggle = () => { if (status.playing) player.pause(); else { if (status.didJustFinish || (durationMs && position >= durationMs - 50)) void player.seekTo(0); player.play() } }
+  const toggle = () => { if (status.playing) player.pause(); else { if (status.didJustFinish || (durationMs && position >= durationMs - 50)) void player.seekTo(0).then(() => player.play()).catch(() => {}); else player.play() } }
   return <View accessibilityLabel="Voice message ready to send" style={{ flex: 1, minWidth: 0, minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 26, borderWidth: 1, borderColor: c.border, backgroundColor: c.panel, paddingHorizontal: 6 }}>
     <Pressable accessibilityRole="button" accessibilityLabel="Delete recording" disabled={disabled} onPress={voice.cancel} hitSlop={6} style={[{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.5 : 1 }, pointer]}><Icon name="trash2" size={20} color={c.danger} /></Pressable>
     <Pressable accessibilityRole="button" accessibilityLabel={status.playing ? 'Pause' : 'Listen'} onPress={toggle} style={[{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: c.successSoft }, pointer]}><View style={{ marginLeft: status.playing ? 0 : 2 }}><Icon name={status.playing ? 'pause' : 'play'} size={16} color={c.brand} /></View></Pressable>

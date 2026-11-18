@@ -44,7 +44,7 @@ export function ProfileImages({ part = 'photo' }: { part?: 'photo' | 'background
   </View>
   {reviewBox('avatar')}{status}{editor}
  </View>
- if(!me?.capabilities.includes('ADMIN_USERS'))return null
+ if(!me?.capabilities.includes('ADMIN_APPEARANCE'))return null
  const valid=/^#[0-9a-f]{6}$/i.test(color)
  return <ProfileSection title="Chat background"><View style={{gap:12}}>
   <Text style={{...mutedText(c.muted),fontSize:14,lineHeight:20}}>This changes the background for everyone.</Text>

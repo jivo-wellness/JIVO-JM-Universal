@@ -1,3 +1,4 @@
+import { HoldersDialog, type HoldersTarget } from '../modules/admin/holders/HoldersDialog'
 import { approvalConsequence } from '../modules/admin/approvalReview'
 import { PersonDetail } from './AdminPerson'
 import { CreatePerson, GroupManagement, SecurityPolicyPanel, useAdminOperation, AdminFeedback } from './AdminManagement'
@@ -9,7 +10,7 @@ import { useSession } from '../core/auth/Session'
 import { useIdentity } from '../core/auth/identity'
 import { errorMessage } from '../core/api/client'
 import { useResource } from '../shared/useResource'
-import { Button, EmptyState, ErrorState, Field, Label, Spinner, Surface, glass, styles, useColors } from '../ui'
+import { Button, EmptyState, ErrorState, Field, Label, Spinner, ListSection as Surface, styles, useColors } from '../ui'
 import { Icon } from './Icon'
 import { formatRelative } from '../shared/utils/format'
 import { ChatAvatar } from './ChatAvatar'
@@ -37,9 +38,9 @@ function People({ initialUser, onPerson }: { initialUser?: string; onPerson?: (o
   const setManaging = (value: string | null) => { setManagingState(value); onPerson?.(!!value) }; const { jivo } = useIdentity(); const { me } = useSession()
   // Reference UsersPage: a trash button (with a ConfirmDialog) on every row except your own and deleted ones.
   const [deleting, setDeleting] = useState<admin.AdminUser | null>(null); const [removing, setRemoving] = useState(false); const [removeError, setRemoveError] = useState('')
-  const canDelete = (user: admin.AdminUser) => user.id !== me?.id && !user.is_deleted
+  const canDelete = (user: admin.AdminUser) => !!me?.capabilities.includes('ADMIN_USER_DELETE') && user.can?.delete !== false && user.id !== me?.id && !user.is_deleted
   const rowAction = (user: admin.AdminUser) => canDelete(user) ? <RowIconButton icon="trash2" danger label={`Delete ${user.name}`} onPress={() => setDeleting(user)} />
-    : !user.is_deleted ? <RowIconButton icon="pencil" label={`Edit person ${user.name}`} onPress={() => edit(user)} /> : <View style={{ width: 32 }} />
+    : !user.is_deleted && me?.capabilities.includes('ADMIN_USER_EDIT') && user.can?.edit !== false ? <RowIconButton icon="pencil" label={`Edit person ${user.name}`} onPress={() => edit(user)} /> : <View style={{ width: 32 }} />
   const c = useColors(); const { width } = useWindowDimensions(); const table = width >= 768
   // Reference table columns are content-sized: the person column takes more room on tablets.
   const cols = width >= 1100 ? [341, 414, 327, 174] : [36, 25, 17, 17]
@@ -57,7 +58,7 @@ function People({ initialUser, onPerson }: { initialUser?: string; onPerson?: (o
   if (managing) return <PersonDetail key={managing} id={managing} onClose={() => setManaging(null)} onChanged={resource.refresh} />
   return <View>
     <PageHeader title="People" subtitle={resource.value ? `${count} ${status || 'current'} account${count === 1 ? '' : 's'}` : undefined}
-      actions={!jivo && <IconTextButton icon="userPlus" title="New person" accessibilityLabel="Create person" onPress={() => setCreating(true)} />} />
+      actions={!jivo && me?.capabilities.includes('ADMIN_USER_CREATE') && <IconTextButton icon="userPlus" title="New person" accessibilityLabel="Create person" onPress={() => setCreating(true)} />} />
     {jivo && <Text style={{ marginBottom: 12, fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20, color: c.muted }}>People with JM access in Jivo Auth appear here automatically. Open a person to assign their JM groups. They sign in with their JIVO email and password; no invitation is needed.</Text>}
     {creating && !jivo && <CreatePerson onClose={() => setCreating(false)} onSaved={resource.refresh} />}
     <SearchInput value={query} onChange={value => { setQuery(value); setNumber(1) }} placeholder="Search name, email or employee code" accessibilityLabel="Find people" style={{ marginBottom: 12, ...(table ? { maxWidth: 384 } : {}) }} />
@@ -137,7 +138,7 @@ const groupArea = (g: admin.GroupInfo) => { const jp = g.capabilities.some(k => 
 function GroupCard({ group, onOpen, onEdit }: { group: admin.GroupInfo; onOpen: () => void; onEdit?: () => void }) {
   const c = useColors(); const [hover, setHover] = useState(false)
   return <View style={{ flex: 1 }}><Pressable accessibilityRole="button" accessibilityLabel={`Manage permission group ${group.name}`} onPress={onOpen} onHoverIn={() => setHover(true)} onHoverOut={() => setHover(false)}
-    style={[{ flex: 1, padding: 20, paddingBottom: onEdit ? 44 : 20, borderWidth: 1, borderRadius: 12 }, glass(c, 2), { borderColor: hover ? 'rgba(22,163,74,0.5)' : c.border }, Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null]}>
+    style={[{ flex: 1, padding: 20, paddingBottom: onEdit ? 44 : 20, borderBottomWidth: 1, borderRadius: 0 }, { borderColor: hover ? 'rgba(22,163,74,0.5)' : c.border }, Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null]}>
     <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
@@ -159,6 +160,7 @@ function GroupCard({ group, onOpen, onEdit }: { group: admin.GroupInfo; onOpen: 
 }
 // Reference GroupsPage: header with "New group", search, then JM / JP / both sections of cards (two columns from 768px).
 function Groups() {
+  const [view, setView] = useState<'groups' | 'permissions'>('groups'); const [holders, setHolders] = useState<HoldersTarget | null>(null); const catalogue = useResource(admin.listCapabilities)
   const { me } = useSession(); const [manage,setManage] = useState<admin.GroupInfo | 'new' | null>(null)
   const c = useColors(); const resource = useResource(admin.listGroups); const [editor, setEditor] = useState<Draft | null>(null); const [q, setQ] = useState('')
   const twoColumns = useWindowDimensions().width >= 768
@@ -168,20 +170,23 @@ function Groups() {
   const edit = (group: admin.GroupInfo) => setEditor({ title: 'Edit group', fields: [{ key: 'name', label: 'Group name', value: group.name }, { key: 'description', label: 'Description', value: group.description }], save: values => admin.updateGroup(group.id, values) })
   return <View>
     <PageHeader title="Permission groups" subtitle="Access comes only from these groups. Administrators can grant a group only if they hold everything in it."
-      actions={me?.capabilities.includes('ADMIN_USERS') ? <IconTextButton icon="plus" title="New group" accessibilityLabel="New permission group" onPress={() => setManage('new')} /> : undefined} />
+      actions={me?.capabilities.includes('ADMIN_GROUP_MANAGE') ? <IconTextButton icon="plus" title="New group" accessibilityLabel="New permission group" onPress={() => setManage('new')} /> : undefined} />
+    <PillTabs label="Access catalogue" value={view} options={[["groups", "Groups"], ["permissions", "Permissions"]]} onChange={setView} />
+    {holders && <HoldersDialog target={holders} onClose={() => setHolders(null)} onChanged={resource.refresh} />}
+    {view === 'permissions' && <View style={{ gap: 12, marginTop: 16 }}>{catalogue.loading && <Spinner label="Loading permissions" />}{!!catalogue.error && <ErrorState message={errorMessage(catalogue.error)} onRetry={catalogue.refresh} />}{catalogue.value?.filter(cap => [cap.key, cap.label, cap.description].some(value => value?.toLowerCase().includes(term))).map(cap => <Pressable key={cap.key} accessibilityRole="button" onPress={() => setHolders({ kind: 'capability', key: cap.key, label: cap.label })} style={{ paddingVertical: 12 }}><Label>{cap.label}</Label><Text style={{ color: c.muted }}>{cap.description || cap.key}</Text></Pressable>)}</View>}
     {manage && <GroupManagement group={manage === 'new' ? undefined : manage} onClose={() => setManage(null)} onChanged={resource.refresh} />}
-    {resource.loading && <View style={{ padding: 32 }}><Spinner label="Loading groups" /></View>}
-    {!!resource.error && <ErrorState message={errorMessage(resource.error)} onRetry={resource.refresh} />}
-    {!resource.loading && !resource.error && !rows.length && <EmptyState title="Nothing here yet." />}
-    {rows.length > 0 && <SearchInput value={q} onChange={setQ} placeholder="Search groups or permissions" style={{ marginBottom: 16, ...(twoColumns ? { maxWidth: 448 } : {}) }} />}
-    {rows.length > 0 && !shown.length && <Text style={{ paddingVertical: 32, textAlign: 'center', fontFamily: 'Inter_400Regular', fontSize: 14, color: c.muted }}>No group matches “{q}”.</Text>}
-    {GROUP_SECTIONS.map(section => { const items = shown.filter(g => groupArea(g) === section.area); if (!items.length) return null
+    {view === 'groups' && resource.loading && <View style={{ padding: 32 }}><Spinner label="Loading groups" /></View>}
+    {view === 'groups' && !!resource.error && <ErrorState message={errorMessage(resource.error)} onRetry={resource.refresh} />}
+    {view === 'groups' && !resource.loading && !resource.error && !rows.length && <EmptyState title="Nothing here yet." />}
+    {<SearchInput value={q} onChange={setQ} placeholder="Search groups or permissions" style={{ marginBottom: 16, ...(twoColumns ? { maxWidth: 448 } : {}) }} />}
+    {view === 'groups' && rows.length > 0 && !shown.length && <Text style={{ paddingVertical: 32, textAlign: 'center', fontFamily: 'Inter_400Regular', fontSize: 14, color: c.muted }}>No group matches “{q}”.</Text>}
+    {view === 'groups' && GROUP_SECTIONS.map(section => { const items = shown.filter(g => groupArea(g) === section.area); if (!items.length) return null
       const pairs = twoColumns ? items.reduce<admin.GroupInfo[][]>((all, g, i) => { if (i % 2 === 0) all.push([g]); else all[all.length - 1].push(g); return all }, []) : items.map(g => [g])
       return <View key={section.area} accessibilityLabel={section.title} style={{ marginBottom: 24 }}>
         <Text accessibilityRole="header" style={{ fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 12, lineHeight: 16, letterSpacing: 0.6, color: c.muted }}>{section.title.toUpperCase()} <Text style={{ fontFamily: 'Inter_400Regular', fontWeight: '400', letterSpacing: 0 }}>· {items.length}</Text></Text>
         <Text style={{ marginBottom: 8, fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 16, color: c.muted }}>{section.hint}</Text>
         <View style={{ gap: 16 }}>{pairs.map(pair => <View key={pair[0].id} style={{ flexDirection: 'row', gap: 16 }}>
-          {pair.map(group => <GroupCard key={group.id} group={group} onOpen={() => setManage(group)} onEdit={group.can_edit ? () => edit(group) : undefined} />)}
+          {pair.map(group => <GroupCard key={group.id} group={group} onOpen={() => setHolders({ kind: 'group', group })} onEdit={group.can_edit ? () => edit(group) : undefined} />)}
           {twoColumns && pair.length === 1 && <View style={{ flex: 1 }} />}
         </View>)}</View>
       </View> })}
@@ -230,10 +235,14 @@ function Approvals() {
 }
 export function AdminPanel({ initialTab, initialUser }: { initialTab?: string; initialUser?: string }) {
   const router = useRouter(); const { me } = useSession(); const [tab, setTab] = useState<'people' | 'companies' | 'groups' | 'approvals' | 'security'>(initialTab === 'companies' || initialTab === 'groups' || initialTab === 'approvals' || initialTab === 'security' ? initialTab : 'people')
-  const managesUsers = me?.capabilities.includes('ADMIN_USERS') ?? false; const wide = useWindowDimensions().width >= 768; const [personOpen, setPersonOpen] = useState(!!initialUser)
-  if (!managesUsers && !me?.capabilities.includes('ADMIN_AUDIT')) return <EmptyState title="Administration" description="Administration access is not enabled for your account." action={<Button title="Back to home" variant="secondary" onPress={() => router.replace('/home')} />} />
-  const currentTab = managesUsers ? tab : 'groups'
-  const sections = (managesUsers ? [['people', 'People'], ['groups', 'Permission groups'], ['security', 'Security']] as const : [['groups', 'Permission groups']] as const) as readonly (readonly ['people' | 'groups' | 'security', string])[]
+  const wide = useWindowDimensions().width >= 768; const [personOpen, setPersonOpen] = useState(!!initialUser)
+  const can = (key: string) => !!me?.capabilities.some(held => held === key)
+  const sections: (readonly ['people' | 'groups' | 'security', string])[] = []
+  if (can('ADMIN_USER_VIEW')) sections.push(['people', 'People'])
+  if (can('ADMIN_GROUP_VIEW') || can('ADMIN_AUDIT_VIEW')) sections.push(['groups', 'Permission groups'])
+  if (can('ADMIN_SECURITY_POLICY')) sections.push(['security', 'Security'])
+  if (!sections.length) return <EmptyState title="Administration" description="Administration access is not enabled for your account." action={<Button title="Back to home" variant="secondary" onPress={() => router.replace('/home')} />} />
+  const currentTab = sections.some(([key]) => key === tab) ? tab : sections[0][0]
   const header = currentTab === 'companies' ? 'Companies' : currentTab === 'approvals' ? 'Approvals' : null
   // Reference: each section is its own page reached from the rail; phones have no rail, so a pill switcher stands in.
   return <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.page, { gap: 0 }]}>

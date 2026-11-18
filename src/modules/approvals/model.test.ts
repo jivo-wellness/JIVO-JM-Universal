@@ -28,6 +28,13 @@ describe('approvals inbox model', () => {
     for (const bad of ['https://evil.test/api/jm/x/', '/api/other/x/', '/api/jm/../x/', '/api/jm//x/', '/api/jm/x%2f/', '/api/jm/x']) expect(endpointFor(bad)).toBeNull()
   })
 
+  it('supports the two-administrator oversight reveal flow', () => {
+    const request = item({kind: 'oversight_reveal', link: '/admin/oversight'})
+    expect(appHref(request)).toBe('/oversight')
+    expect(confirmCopy(request, 'approve').body).toContain('once in the next 10 minutes')
+    expect(endpointFor('/api/jp/oversight/reveal-requests/o1/approve/')).toEqual({base: 'jp', url: '/oversight/reveal-requests/o1/approve/'})
+  })
+
   it('links each kind to its Universal page', () => {
     expect(appHref(item())).toBe('/passwords?vault=v1')
     expect(appHref(item({ kind: 'admin', link: '/admin/approvals' }))).toBe('/admin?tab=approvals')
@@ -49,6 +56,6 @@ describe('approvals inbox model', () => {
   it('gates the navigation entry like the web registry', () => {
     expect(allows([], APPROVALS_ACCESS)).toBe(false)
     expect(allows(['JP_ACCESS'], APPROVALS_ACCESS)).toBe(true)
-    expect(allows(['ADMIN_USERS'], APPROVALS_ACCESS)).toBe(true)
+    expect(allows(['ADMIN_APPROVALS'], APPROVALS_ACCESS)).toBe(true)
   })
 })

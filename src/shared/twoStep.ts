@@ -9,7 +9,7 @@ export type LockReason = 'two_step_required' | 'session_not_verified' | 'recover
 export type TwoStepLockReason = Exclude<LockReason, 'recovery_hold'>
 
 const OVERSIGHT_KEYS = ['JM_OVERSIGHT_READ', 'JM_OVERSIGHT_SEARCH', 'JM_OVERSIGHT_MODERATE', 'JP_OVERSIGHT_VIEW']
-const OPENS_PASSWORDS = ['JP_ACCESS', 'JP_MANAGE_VAULT', 'JP_BREAK_GLASS', 'JP_REQUEST_EMERGENCY']
+const OPENS_PASSWORDS = ['JP_ACCESS', 'JP_VAULT_DIRECTORY', 'JP_EMERGENCY_APPROVE', 'JP_EMERGENCY_REQUEST']
 
 interface SecurityLike {
   mfa_enrolled?: boolean

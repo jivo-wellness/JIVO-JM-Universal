@@ -55,14 +55,14 @@ export class ChatLockController {
     if (this.hiddenAt !== null && (this.now() - this.hiddenAt >= CHAT_LOCK_BACKGROUND_MS || this.now() < this.hiddenAt)) this.relock()
     this.hiddenAt = null
   }
-  private async run<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T | null> {
+  private async run<T>(work: (signal: AbortSignal) => Promise<T>, grantAccess = true): Promise<T | null> {
     if (!this.owner || !this.foreground || this.state.busy) return null
     const epoch = ++this.epoch; const owner = this.owner; const controller = new AbortController()
     this.flight = controller; this.publish({ busy: true, error: '' })
     try {
       const result = await work(controller.signal)
       if (epoch !== this.epoch || owner !== this.owner || !this.foreground || controller.signal.aborted) return null
-      this.publish({ unlocked: true, busy: false, error: '' })
+      this.publish({ unlocked: grantAccess, busy: false, error: '' })
       return result
     } catch (error) {
       if (epoch === this.epoch && !controller.signal.aborted) this.publish({ busy: false, error: this.deps.message(error) })
@@ -73,5 +73,9 @@ export class ChatLockController {
     if (this.state.unlocked && this.owner && this.foreground) return true
     return await this.run(async signal => { await this.deps.verify(signal); return true }) === true
   }
-  setLocked = (id: string, locked: boolean): Promise<ConversationDetail | null> => this.run(signal => this.deps.update(id, locked, signal))
+  setLocked = async (id: string, locked: boolean): Promise<ConversationDetail | null> => {
+    const result = await this.run(signal => this.deps.update(id, locked, signal), !locked && this.state.unlocked)
+    if (result && locked) this.relock()
+    return result
+  }
 }

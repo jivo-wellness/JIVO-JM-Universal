@@ -1,4 +1,4 @@
-import { allows, ADMIN_ACCESS, type Capability } from '../config/capabilities'
+import { allows, ADMIN_ACCESS, OVERSIGHT_ACCESS, type Capability } from '../config/capabilities'
 import { APPROVALS_ACCESS } from '../modules/approvals/model'
 
 /** Reference Tailwind `md` breakpoint: the icon rail replaces the phone top/bottom bars from here. */
@@ -38,7 +38,7 @@ export const controlHeight = (platform: string) => (platform === 'web' ? 40 : 44
  */
 export const chatListWidth = (width: number) => (width >= 1024 ? 400 : 360)
 
-export type ShellIcon = 'home' | 'messagesSquare' | 'key' | 'clipboardCheck' | 'bell' | 'user' | 'shield' | 'shieldCheck' | 'users' | 'lockKeyhole' | 'megaphone' | 'tools'
+export type ShellIcon = 'home' | 'messagesSquare' | 'key' | 'clipboardCheck' | 'bell' | 'user' | 'shield' | 'shieldCheck' | 'users' | 'lockKeyhole' | 'megaphone' | 'tools' | 'eye'
 /** `query` marks a link to one view of a page (e.g. an Admin tab), so it is active only on that view. */
 export type ShellLink = { title: string; tabTitle: string; href: string; icon: ShellIcon; query?: { key: string; value: string; fallback?: boolean } }
 
@@ -54,21 +54,23 @@ export function shellLinks(capabilities: readonly string[], preview = false): { 
   const inbox = can('JM_ACCESS') && { title: 'Notifications', tabTitle: 'Inbox', href: '/notifications', icon: 'bell' } as ShellLink
   const vault = can('JP_ACCESS') && { title: 'Passwords', tabTitle: 'Passwords', href: '/passwords', icon: 'key' } as ShellLink
   const alerts: ShellLink = { title: 'Alerts', tabTitle: 'Alerts', href: '/alerts', icon: 'megaphone' }
-  // Reference registry: Approvals follows Passwords (ADMIN_USERS or JP_ACCESS, FE-023).
+  // Reference registry: Approvals follows Passwords (ADMIN_APPROVALS or JP_ACCESS, FE-023).
   const approvals = can(APPROVALS_ACCESS) && { title: 'Approvals', tabTitle: 'Approvals', href: '/approvals', icon: 'clipboardCheck' } as ShellLink
-  const people = can('ADMIN_USERS') && { title: 'People', tabTitle: 'People', href: '/admin?tab=people', icon: 'users', query: { key: 'tab', value: 'people', fallback: true } } as ShellLink
-  const groups = can(ADMIN_ACCESS) && { title: 'Permission groups', tabTitle: 'Groups', href: '/admin?tab=groups', icon: 'shieldCheck', query: { key: 'tab', value: 'groups', fallback: !can('ADMIN_USERS') } } as ShellLink
-  const security = can('ADMIN_USERS') && { title: 'Security', tabTitle: 'Security', href: '/admin?tab=security', icon: 'lockKeyhole', query: { key: 'tab', value: 'security' } } as ShellLink
+  const people = can('ADMIN_USER_VIEW') && { title: 'People', tabTitle: 'People', href: '/admin?tab=people', icon: 'users', query: { key: 'tab', value: 'people', fallback: true } } as ShellLink
+  const groups = can(['ADMIN_GROUP_VIEW', 'ADMIN_AUDIT_VIEW']) && { title: 'Permission groups', tabTitle: 'Groups', href: '/admin?tab=groups', icon: 'shieldCheck', query: { key: 'tab', value: 'groups', fallback: !can('ADMIN_USER_VIEW') } } as ShellLink
+  const security = can('ADMIN_SECURITY_POLICY') && { title: 'Security', tabTitle: 'Security', href: '/admin?tab=security', icon: 'lockKeyhole', query: { key: 'tab', value: 'security' } } as ShellLink
   // One Tools screen: Messenger users open the tools; ADMIN_TOOLS_MANAGE holders (who may lack JM_ACCESS) also manage them there.
   const launcher = can(['JM_ACCESS', 'ADMIN_TOOLS_MANAGE']) && { title: 'Tools', tabTitle: 'Tools', href: '/tools', icon: 'tools' } as ShellLink
   const profile: ShellLink = { title: 'Profile', tabTitle: 'Profile', href: '/profile', icon: 'user' }
   const admin = can(ADMIN_ACCESS) && { title: 'Administration', tabTitle: 'Admin', href: '/admin', icon: 'shield' } as ShellLink
-  const rail = keep([home, chats, inbox, vault, launcher, approvals, people, groups, security])
+  const oversight = can(OVERSIGHT_ACCESS) && { title: 'Oversight', tabTitle: 'Oversight', href: '/oversight', icon: 'eye' } as ShellLink
+  const audit = can('ADMIN_AUDIT_VIEW') && { title: 'Audit log', tabTitle: 'Audit', href: '/audit', icon: 'shieldCheck' } as ShellLink
+  const rail = keep([home, chats, inbox, vault, launcher, approvals, people, groups, security, oversight, audit])
   return {
     rail,
     tabs: keep([home, vault ? launcher : can('JM_ACCESS') && alerts, chats, vault || launcher, profile]),
     // Reference: on phones the remaining pages (and Sign out) are reached from Profile.
-    account: keep([profile, can('JM_ACCESS') && alerts, launcher, approvals, admin]),
+    account: keep([profile, can('JM_ACCESS') && alerts, launcher, approvals, admin, oversight, audit]),
     tools: chats ? '/notifications' : rail.at(-1)?.href ?? null,
   }
 }

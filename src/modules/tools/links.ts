@@ -6,3 +6,8 @@ export function safeToolLink(value: string, app = false): boolean {
     return app && !!url.host && !['http:', 'file:', 'content:', 'intent:', 'javascript:', 'data:', 'vbscript:', 'tel:', 'sms:', 'mailto:'].includes(url.protocol)
   } catch { return false }
 }
+
+/** Same tile initials as the web directory. */
+export function toolInitials(name: string): string {
+  return name.trim().slice(0, 2).toUpperCase() || '?'
+}

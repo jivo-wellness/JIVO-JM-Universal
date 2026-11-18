@@ -1,12 +1,16 @@
-import { useState, type ReactNode } from 'react'
+import { createContext, useContext, useState, type ReactNode } from 'react'
 import { Pressable, Text, View, useWindowDimensions } from 'react-native'
-import { Surface, useColors } from '../ui'
+import { ListSection as Surface, useColors } from '../ui'
 import { Icon, type IconName } from './Icon'
+
+export const ProfilePageSection = createContext<string[] | null>(null)
 
 /** Profile cards start collapsed; keeping the content mounted preserves unsaved edits. */
 export function ProfileSection({ title, aside, badge, children }: { title: string; aside?: ReactNode; badge?: ReactNode; children?: ReactNode }) {
   const c = useColors()
-  const [expanded, setExpanded] = useState(false)
+  const visible = useContext(ProfilePageSection)
+  const [expanded, setExpanded] = useState(visible !== null)
+  if (visible && !visible.includes(title)) return null
   return <Surface style={{ paddingHorizontal: 20, paddingVertical: 12 }}>
     <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityHint={expanded ? 'Collapse section' : 'Expand section'} accessibilityState={{ expanded }} aria-expanded={expanded} onPress={() => setExpanded(value => !value)} style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, opacity: pressed ? 0.7 : 1 })}>
       <Text style={{ flex: 1, color: c.text, fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 16, lineHeight: 24 }}>{title}</Text>

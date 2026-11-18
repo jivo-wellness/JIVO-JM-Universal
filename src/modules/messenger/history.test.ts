@@ -194,3 +194,19 @@ it('does not repopulate resynced cache with a stale detail response but accepts 
  await c.refreshDetail(); expect((await cache.get('c'))?.window.messages).toHaveLength(2)
  await cache.flush()
 })
+
+it('does not paint a cached middle window on ordinary chat open', async () => {
+ const cache = new ConversationCache({ read: async () => null, write: async () => {}, clear: async () => {} }); await cache.bind('alice')
+ const seed = new HistoryController({detail:async()=>({id:'c'}) as ConversationDetail,read:async()=>page([5],{has_more_after:true,last_seq:10}),message:String,cache})
+ await seed.select('c',5)
+ let release!: (value:MessageWindow)=>void
+ const c = new HistoryController({detail:async()=>({id:'c'}) as ConversationDetail,read:()=>new Promise(r=>{release=r}),message:String,cache})
+ const opening=c.select('c'); await new Promise(r=>setTimeout(r,0))
+ expect(c.snapshot().window.messages).toEqual([]);expect(c.snapshot().targetSeq).toBeNull()
+ release(page([10]));await opening;expect(c.snapshot().window.messages.at(-1)?.seq).toBe(10)
+ await cache.flush()
+})
+it('clears an explicit target before reopening the latest messages',async()=>{
+ const c=new HistoryController({detail:async()=>({id:'c'}) as ConversationDetail,read:async(_id,q)=>page([q?.around??10]),message:String})
+ await c.select('c',5);await c.select('c');expect(c.snapshot().targetSeq).toBeNull();expect(c.snapshot().window.messages.at(-1)?.seq).toBe(10)
+})

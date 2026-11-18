@@ -38,8 +38,8 @@ export const attachDisabled = (actions: Pick<AttachActions, 'canSendFile' | 'all
 export function AttachMenu({ anchor, actions, onClose }: { anchor: { x: number; y: number }; actions: AttachActions; onClose: () => void }) {
   const c = useColors(); const { width, height } = useWindowDimensions()
   const phone = width < 768
-  const cardWidth = phone ? width - 16 : 320
-  const left = phone ? 8 : Math.max(8, Math.min(anchor.x, width - cardWidth - 8))
+  const cardWidth = Math.min(288, width - 24)
+  const left = phone ? width - cardWidth - 12 : Math.max(8, Math.min(anchor.x, width - cardWidth - 8))
   const bottom = Math.max(8, height - anchor.y + 8)
   return <Modal transparent visible onRequestClose={onClose} animationType="fade" statusBarTranslucent navigationBarTranslucent>
     <Pressable accessibilityLabel="Close attach menu" onPress={onClose} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, ...(web ? { cursor: 'default' } : {}) } as object} />
@@ -48,7 +48,7 @@ export function AttachMenu({ anchor, actions, onClose }: { anchor: { x: number; 
         {attachItems.map(item => {
           const disabled = attachDisabled(actions, item.gate)
           return <Pressable key={item.key} accessibilityRole="menuitem" accessibilityLabel={item.label} accessibilityState={{ disabled }} disabled={disabled} onPress={() => { onClose(); actions[item.key]() }}
-            style={({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [{ flexDirection: 'row', alignItems: 'center', gap: 14, minHeight: 52, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: c.border, opacity: disabled ? 0.45 : 1, backgroundColor: (hovered || pressed) && !disabled ? c.hover : c.dark ? 'rgba(255,255,255,0.04)' : c.shell }, web ? ({ cursor: disabled ? 'not-allowed' : 'pointer' } as object) : null]}>
+            style={({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [{ flexDirection: 'row', alignItems: 'center', gap: 14, minHeight: 52, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 26, borderWidth: 0, borderColor: c.border, opacity: disabled ? 0.45 : 1, backgroundColor: (hovered || pressed) && !disabled ? `${item.tone}18` : 'transparent' }, web ? ({ cursor: disabled ? 'not-allowed' : 'pointer' } as object) : null]}>
             <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: item.tone }}><Icon name={item.icon} size={20} color="#ffffff" /></View>
             <Text numberOfLines={1} style={{ flex: 1, color: c.text, fontFamily: 'Inter_500Medium', fontSize: 15, lineHeight: 22 }}>{item.label}</Text>
           </Pressable>

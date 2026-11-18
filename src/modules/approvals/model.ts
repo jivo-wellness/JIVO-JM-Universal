@@ -5,9 +5,9 @@
 import type { Capability } from '../../config/capabilities'
 
 /** Same gate as the web navigation entry: administration approvals or Passwords requests. */
-export const APPROVALS_ACCESS: readonly Capability[] = ['ADMIN_USERS', 'JP_ACCESS']
+export const APPROVALS_ACCESS: readonly Capability[] = ['ADMIN_APPROVALS', 'JP_ACCESS']
 
-export type ApprovalKind ='admin' | 'vault_owner' | 'emergency_access'
+export type ApprovalKind ='admin' | 'vault_owner' | 'emergency_access' | 'oversight_reveal'
 export type ApprovalStatus = 'pending' | 'approved' | 'denied' | 'cancelled' | 'expired' | 'revoked' | 'active'
 export type ApprovalDecision = 'approve' | 'deny' | 'cancel'
 export type ApprovalFilter = 'waiting' | 'mine' | 'all'
@@ -38,12 +38,14 @@ export interface ApprovalList { results: ApprovalItem[]; waiting_on_me: number }
 export const FILTERS: readonly (readonly [ApprovalFilter, string])[] = [['waiting', 'Waiting on me'], ['mine', 'My requests'], ['all', 'History']]
 
 export const KIND_LABEL: Record<ApprovalKind, string> = {
+  oversight_reveal: 'Oversight - view a password',
   admin: 'Administration',
   vault_owner: 'Passwords · vault owner',
   emergency_access: 'Passwords · emergency access',
 }
 
 const CONFIRM: Record<ApprovalKind, string> = {
+  oversight_reveal: 'They can view this password once in the next 10 minutes. The vault owner is told, and it is recorded.',
   admin: 'It runs as you, and is recorded.',
   vault_owner: 'The person gets (or loses) full control of the vault. It is recorded.',
   emergency_access: 'They can open the vault’s passwords for a limited time. The vault’s owners are told, and it is recorded.',
@@ -108,6 +110,7 @@ export function endpointFor(path: string): { base: 'jm' | 'jp'; url: string } | 
 
 /** Map the web app's link for an item to the matching Universal route. */
 export function appHref(item: Pick<ApprovalItem, 'kind' | 'link'>): string {
+  if (item.kind === 'oversight_reveal') return '/oversight'
   if (item.kind === 'admin') return '/admin?tab=approvals'
   if (item.kind === 'emergency_access') return '/passwords?view=break-glass'
   const vault = /^\/passwords\/vaults\/([A-Za-z0-9_-]+)\/?$/.exec(item.link)?.[1]

@@ -49,3 +49,8 @@ it('encodes path separators and refuses files over the total offline limit', asy
  expect((await queuedMedia.open('../alice', '../../message', media)).uri).not.toContain('/../')
  await expect(queuedMedia.save('alice', 'large', 'key', { ...photo, size: 501 * 1024 * 1024 })).rejects.toThrow('500 MB')
 })
+
+it('keeps recorded duration through offline storage and restore', async () => {
+ const saved = await queuedMedia.save('alice', 'voice', 'key', { ...photo, mime:'audio/mp4', durationMs:4200 })
+ expect((await queuedMedia.open('alice','voice',saved)).durationMs).toBe(4200)
+})

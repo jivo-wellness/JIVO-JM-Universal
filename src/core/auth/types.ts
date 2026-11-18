@@ -28,6 +28,7 @@ export interface Me {
   can_create_groups: boolean
   /** Superuser: holds every capability (set only on the server, never in JM). */
   is_superuser?: boolean
+  oversight_enabled?: boolean
   /** A requested new email, waiting for an administrator to confirm it. */
   pending_email: string | null
   pending_email_requested_at: string | null

@@ -39,7 +39,7 @@ export function Sheet({ visible, onClose, children, title, description, footer, 
     : { ...glass(c, 4), borderWidth: 1, width: '100%', maxWidth: bottom ? undefined : wide ? 672 : 448, maxHeight: stableForm ? '100%' : Math.max(100, Math.round((height - (bottom ? inset.top : 0)) * 0.85)), alignSelf: 'center', flexShrink: 1, overflow: 'hidden',
       ...(bottom ? { borderTopLeftRadius: radius.panel, borderTopRightRadius: radius.panel, borderBottomWidth: 0, paddingBottom: keyboardVisible ? 0 : inset.bottom } : { borderRadius: radius.panel }) }
   const closeButton = <Pressable accessibilityRole="button" accessibilityLabel={closeLabel} disabled={closeDisabled} onPress={onClose}
-    style={({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [panel ? { width: 36, height: 36, borderRadius: 18 } : { width: 28, height: 28, margin: -4, borderRadius: 6 }, { alignItems: 'center', justifyContent: 'center', opacity: closeDisabled ? 0.5 : 1, backgroundColor: hovered || pressed ? c.hover : 'transparent' }, web ? ({ cursor: 'pointer' } as object) : null]}>
+    style={({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [panel ? { width: 36, height: 36, borderRadius: 18 } : { width: 28, height: 28, margin: -4, borderRadius: 14 }, { alignItems: 'center', justifyContent: 'center', opacity: closeDisabled ? 0.5 : 1, backgroundColor: hovered || pressed ? c.hover : 'transparent' }, web ? ({ cursor: 'pointer' } as object) : null]}>
     <Icon name="x" size={panel ? 18 : 20} color={c.muted} />
   </Pressable>
   return <Modal transparent visible={visible} onRequestClose={onClose} animationType={bottomAligned ? "slide" : "none"}>
