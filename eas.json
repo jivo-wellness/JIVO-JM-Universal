@@ -1,0 +1,16 @@
+{
+  "cli": { "appVersionSource": "local" },
+  "build": {
+    "production": {
+      "distribution": "store",
+      "environment": "production",
+      "env": { "EXPO_PUBLIC_API_ORIGIN": "https://messenger.jivo.in" },
+      "android": { "buildType": "app-bundle", "credentialsSource": "local" }
+    },
+    "preview": {
+      "extends": "production",
+      "distribution": "internal",
+      "android": { "buildType": "apk", "credentialsSource": "local" }
+    }
+  }
+}

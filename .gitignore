@@ -49,3 +49,8 @@ yarn-error.*
 
 
 .local-ui-port
+
+# Local release credentials and downloaded build artifacts
+/credentials.json
+/google-services.json
+/release-artifacts/

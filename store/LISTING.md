@@ -1,5 +1,7 @@
 # Store listing: JIVO JM
 
+For the current Android release, use [PLAY-STORE-RELEASE.md](PLAY-STORE-RELEASE.md). It contains updated copy, build commands and outstanding publication checks. The remaining sections are historical cross-store notes; verify them before reuse.
+
 Texts and files for Google Play and the App Store. Character limits are checked; counts are in brackets.
 App id on both stores: `com.jivo.jm` (in `app.json`).
 
@@ -43,19 +45,16 @@ MESSENGER
 PASSWORDS
 • Personal and team vaults for work logins
 • Share an entry with colleagues and take access back at any time
-• Secrets stay hidden until you reveal them, and screenshots are blocked while they are shown
 • Copied passwords are cleared from the clipboard after 30 seconds
 
 ALSO IN JM
 • Company announcements and alerts
-• Approvals inbox
 • Quick links to JIVO's work tools
 • Dark and light mode
 
 SECURITY
 • Sign in with your JIVO account, with passkeys or an authenticator app for two-step verification
 • Every session can be ended from your profile
-• Messages and vault entries are encrypted on JIVO's servers
 
 JIVO JM is for JIVO employees. You need an active JIVO account to sign in.
 ```

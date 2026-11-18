@@ -287,7 +287,7 @@ const screens = [
   ['03', 'group-chat', async (page, base) => { await page.goto(base + '/messenger?conversation=sales'); await page.getByText("Updated the Q3 deck with everyone's inputs. Please review by Friday.").waitFor() }],
   ['04', 'passwords', async (page, base) => { await page.goto(base + '/passwords'); await openVault(page) }],
   ['05', 'password-entry', async (page, base) => { await page.goto(base + '/passwords'); await openVault(page); await page.getByRole('button', { name: 'Open CRM Portal', exact: true }).click(); await page.getByRole('button', { name: 'Reveal password', exact: true }).first().waitFor() }],
-  ['06', 'profile', async (page, base) => { await page.goto(base + '/profile'); await page.getByText('Your details', { exact: true }).first().click(); await page.getByText('rahul.verma@example.com').first().waitFor(); await hideInstallRow(page) }],
+  ['06', 'profile', async (page, base) => { await page.goto(base + '/profile'); const section = page.getByRole('button', { name: 'Your details', exact: true }); await section.waitFor(); if (await section.getAttribute('aria-expanded') !== 'true') await section.click(); await page.getByText('rahul.verma@example.com').first().waitFor(); await hideInstallRow(page) }],
   ['07', 'tools', async (page, base) => { await page.goto(base + '/tools'); await page.getByText('Expense Claims').first().waitFor() }],
   ['08', 'sign-in', async (page, base) => { await page.goto(base + '/login'); await page.getByLabel('Email', { exact: true }).fill('rahul.verma@example.com'); await page.getByLabel('Password', { exact: true }).fill('synthetic-pass'); await page.getByLabel('Password', { exact: true }).blur() }, { signedIn: false }],
 ]

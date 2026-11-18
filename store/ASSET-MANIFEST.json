@@ -1,0 +1,72 @@
+[
+  {
+    "file": "store/play-icon-512.png",
+    "width": 512,
+    "height": 512,
+    "bytes": 58033,
+    "sha256": "97e834b276b005bd8a91e9397610fead7fc317e461bd199a8b7f538d77f7dcf5"
+  },
+  {
+    "file": "store/feature-graphic-1024x500.png",
+    "width": 1024,
+    "height": 500,
+    "bytes": 88875,
+    "sha256": "1d662d7c033d0bd368e0ba71de84df6044717b171418ed94147d18997c1c02f5"
+  },
+  {
+    "file": "store/screenshots/android-phone/01-chat-list.png",
+    "width": 1080,
+    "height": 2160,
+    "bytes": 310801,
+    "sha256": "cb737c75fae2a8745ba7fc220ec36bced694ea6c79d71602915bf264336abea5"
+  },
+  {
+    "file": "store/screenshots/android-phone/02-direct-chat.png",
+    "width": 1080,
+    "height": 2160,
+    "bytes": 183261,
+    "sha256": "e68dbe023bff342164f38291ede0c35e273b4ed4164ffa231d131a489859e8e3"
+  },
+  {
+    "file": "store/screenshots/android-phone/03-group-chat.png",
+    "width": 1080,
+    "height": 2160,
+    "bytes": 181707,
+    "sha256": "ff7beb104293176f293a498578ba1af210347dddfceae6bccead61b115a303ce"
+  },
+  {
+    "file": "store/screenshots/android-phone/04-passwords.png",
+    "width": 1080,
+    "height": 2160,
+    "bytes": 450377,
+    "sha256": "6fd566f645332c044d1e708c1b562870f92d9f8cc15e14e5e31fa02834c8a90c"
+  },
+  {
+    "file": "store/screenshots/android-phone/05-password-entry.png",
+    "width": 1080,
+    "height": 2160,
+    "bytes": 174649,
+    "sha256": "1a6bcb60bd6e96b7c67ee8670af050d1e2bd294e8854887d28085030d4afc283"
+  },
+  {
+    "file": "store/screenshots/android-phone/06-profile.png",
+    "width": 1080,
+    "height": 2160,
+    "bytes": 526453,
+    "sha256": "eab0a6081bb97a722912ed0733d6a551fbb53e0e8777dfe0db0513e575b4a503"
+  },
+  {
+    "file": "store/screenshots/android-phone/07-tools.png",
+    "width": 1080,
+    "height": 2160,
+    "bytes": 430616,
+    "sha256": "48698eba716a2864ba60fb0b9657d00782c2dc6852aac3d6f09d99cb123f4f62"
+  },
+  {
+    "file": "store/screenshots/android-phone/08-sign-in.png",
+    "width": 1080,
+    "height": 2160,
+    "bytes": 462979,
+    "sha256": "28834d40a218441ab761a67d883f2e632fffbfdd269a1d6b5a29593787573cd9"
+  }
+]
