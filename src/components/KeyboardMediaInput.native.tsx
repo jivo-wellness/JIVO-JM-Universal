@@ -8,9 +8,9 @@ const Wrapper = requireOptionalNativeModule('ExpoPasteInput')
  ? (require('expo-paste-input') as typeof import('expo-paste-input')).TextInputWrapper : null
 
 export function KeyboardMediaInput({ children, onMedia }: KeyboardMediaInputProps) {
- if (!Wrapper || !onMedia) return <View style={{ flex: 1, minWidth: 0 }}>{children}</View>
+ if (!Wrapper) return <View style={{ flex: 1, minWidth: 0 }}>{children}</View>
  return <Wrapper style={{ flex: 1, minWidth: 0 }} onPaste={event => {
   // Text is already inserted by the OS. Do not insert it a second time.
-  if (event.type === 'images') onMedia(event.uris)
+  if (event.type === 'images') onMedia?.(event.uris)
  }}>{children}</Wrapper>
 }

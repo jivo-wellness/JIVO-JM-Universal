@@ -36,13 +36,15 @@ type Panel = 'none' | 'emoji' | 'search' | 'sticker-search'
  * microphone while nothing is typed and Send otherwise. The composer keeps itself (and so the chat above it) directly
  * over the on-screen keyboard, and the emoji panel (Emoji | Stickers) takes the keyboard's place at the same height.
  */
-export function ChatComposer({ inputProps, onSend, sendLabel = 'Send message', sendDisabled, disabled = false, onTools, attach, onVoice, onSticker, onKeyboardMedia }: {
+export function ChatComposer({ inputProps, onSend, sendLabel = 'Send message', sendDisabled, disabled = false, busy = false, onTools, attach, onVoice, onSticker, onKeyboardMedia }: {
   onKeyboardMedia?: (uris: string[]) => void
   inputProps: TextInputProps
   onSend: () => void
   sendLabel?: string
   sendDisabled: boolean
   disabled?: boolean
+  /** Sending blocks duplicate actions without blurring the editable message input. */
+  busy?: boolean
   /** The + button (attach and message tools); omitted while editing, as in the reference. Ignored when `attach` is given. */
   onTools?: () => void
   /** Reference AttachMenu: when given, + opens Document / Photos & videos / Camera / Location / Contact / Poll / Event. */
@@ -63,7 +65,8 @@ export function ChatComposer({ inputProps, onSend, sendLabel = 'Send message', s
   // Switching emoji panel -> keyboard: hold the panel's space until the keyboard has opened, so the chat does not jump.
   const [awaitingKeyboard, setAwaitingKeyboard] = useState(false)
   const [height, setHeight] = useState(() => panelHeight(lastKeyboardHeight(), windowHeight))
-  const voice = useVoiceMessage({ disabled, onSend: onVoice })
+  const controlsDisabled = disabled || busy
+  const voice = useVoiceMessage({ disabled: controlsDisabled, onSend: onVoice })
   const recording = voice.mode !== 'idle'
   const showMic = Boolean(onVoice) && sendDisabled
   const openAttach = () => plus.current?.measureInWindow((x: number, y: number) => setAnchor({ x, y }))
@@ -99,17 +102,17 @@ export function ChatComposer({ inputProps, onSend, sendLabel = 'Send message', s
       {voice.mode === 'review' ? <VoiceReview voice={voice} disabled={voice.busy} />
         : recording ? <RecordingBar voice={voice} />
           : <View ref={plus} collapsable={false} style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-end', borderRadius: 26, borderWidth: 1, borderColor: c.border, backgroundColor: c.panel, paddingHorizontal: 4, paddingVertical: 2, boxShadow: '0 1px 1px rgba(15, 23, 42, 0.06)' }}>
-            <RoundButton label={panel === 'emoji' ? 'Show keyboard' : 'Emoji'} disabled={disabled} expanded={panel === 'emoji'} onPress={() => { if (panel === 'emoji') showKeyboard(); else showEmoji() }}><Icon name={panel === 'emoji' ? 'keyboard' : 'smile'} size={24} color={c.muted} /></RoundButton>
-            <KeyboardMediaInput onMedia={!disabled ? onKeyboardMedia : undefined}><Field inset={false} {...inputProps} ref={input} onFocus={event => { if (panel !== 'none') { setPanel('none'); setAwaitingKeyboard(!web) } inputProps.onFocus?.(event) }} onSelectionChange={event => { caret.current = event.nativeEvent.selection; inputProps.onSelectionChange?.(event) }} onKeyPress={event => { inputProps.onKeyPress?.(event); if (!web) return; const key = event.nativeEvent as unknown as { key: string; shiftKey?: boolean; isComposing?: boolean }; if (!enterSends(key, coarsePointer())) return; (event as unknown as { preventDefault?: () => void }).preventDefault?.(); if (!disabled && !sendDisabled) onSend() }} compact label="Message" placeholder={inputProps.placeholder ?? 'Message'} multiline numberOfLines={web ? 1 : undefined} editable={!disabled && inputProps.editable !== false} style={[{ borderWidth: 0, borderRadius: 20, boxShadow: 'none', maxHeight: 132, minHeight: 40, paddingLeft: 6, paddingRight: 6, paddingTop: 10, paddingBottom: 10, fontSize: 16, lineHeight: 22, backgroundColor: 'transparent' }, inputProps.style]} /></KeyboardMediaInput>
-            {attach ? <View><RoundButton label="Attach" disabled={disabled} expanded={!!anchor} onPress={openAttach}><Icon name="paperclip" size={22} color={anchor ? c.brand : c.muted} /></RoundButton></View>
-              : onTools && <RoundButton label="Message tools" disabled={disabled} onPress={onTools}><Icon name="paperclip" size={22} color={c.muted} /></RoundButton>}
-            {attach && sendDisabled && <RoundButton label="Camera" disabled={disabled || !attach.canSendFile} onPress={attach.onCamera}><Icon name="camera" size={23} color={c.muted} /></RoundButton>}
+            <RoundButton label={panel === 'emoji' ? 'Show keyboard' : 'Emoji'} disabled={controlsDisabled} expanded={panel === 'emoji'} onPress={() => { if (panel === 'emoji') showKeyboard(); else showEmoji() }}><Icon name={panel === 'emoji' ? 'keyboard' : 'smile'} size={24} color={c.muted} /></RoundButton>
+            <KeyboardMediaInput onMedia={!controlsDisabled ? onKeyboardMedia : undefined}><Field inset={false} {...inputProps} ref={input} onFocus={event => { if (panel !== 'none') { setPanel('none'); setAwaitingKeyboard(!web) } inputProps.onFocus?.(event) }} onSelectionChange={event => { caret.current = event.nativeEvent.selection; inputProps.onSelectionChange?.(event) }} onKeyPress={event => { inputProps.onKeyPress?.(event); if (!web) return; const key = event.nativeEvent as unknown as { key: string; shiftKey?: boolean; isComposing?: boolean }; if (!enterSends(key, coarsePointer())) return; (event as unknown as { preventDefault?: () => void }).preventDefault?.(); if (!controlsDisabled && !sendDisabled) onSend() }} compact label="Message" placeholder={inputProps.placeholder ?? 'Message'} multiline numberOfLines={web ? 1 : undefined} editable={!disabled && inputProps.editable !== false} style={[{ borderWidth: 0, borderRadius: 20, boxShadow: 'none', maxHeight: 132, minHeight: 40, paddingLeft: 6, paddingRight: 6, paddingTop: 10, paddingBottom: 10, fontSize: 16, lineHeight: 22, backgroundColor: 'transparent' }, inputProps.style]} /></KeyboardMediaInput>
+            {attach ? <View><RoundButton label="Attach" disabled={controlsDisabled} expanded={!!anchor} onPress={openAttach}><Icon name="paperclip" size={22} color={anchor ? c.brand : c.muted} /></RoundButton></View>
+              : onTools && <RoundButton label="Message tools" disabled={controlsDisabled} onPress={onTools}><Icon name="paperclip" size={22} color={c.muted} /></RoundButton>}
+            {attach && sendDisabled && <RoundButton label="Camera" disabled={controlsDisabled || !attach.canSendFile} onPress={attach.onCamera}><Icon name="camera" size={23} color={c.muted} /></RoundButton>}
           </View>}
       {voice.mode === 'review' || voice.mode === 'locked'
-        ? <RoundButton label="Send voice message" primary disabled={disabled || voice.busy || (voice.mode === 'locked' && voice.phase !== 'recording')} onPress={() => void voice.send()}><Image accessible={false} source={send} style={{ width: 20, height: 20, tintColor: '#ffffff' }} /></RoundButton>
+        ? <RoundButton label="Send voice message" primary disabled={controlsDisabled || voice.busy || (voice.mode === 'locked' && voice.phase !== 'recording')} onPress={() => void voice.send()}><Image accessible={false} source={send} style={{ width: 20, height: 20, tintColor: '#ffffff' }} /></RoundButton>
         : showMic || recording
-          ? <MicButton voice={voice} disabled={disabled} />
-          : <RoundButton label={sendLabel} primary disabled={disabled || sendDisabled} onPress={onSend}><Image accessible={false} source={send} style={{ width: 20, height: 20, tintColor: '#ffffff' }} /></RoundButton>}
+          ? <MicButton voice={voice} disabled={controlsDisabled} />
+          : <RoundButton label={sendLabel} primary disabled={controlsDisabled || sendDisabled} onPress={onSend}><Image accessible={false} source={send} style={{ width: 20, height: 20, tintColor: '#ffffff' }} /></RoundButton>}
     </View>
     {panel === 'emoji' && <EmojiPanel height={height} tab={tab} onTab={setTab} onEmoji={insertEmoji} onBackspace={backspace} onSearch={() => setPanel(tab === 'stickers' && onSticker ? 'sticker-search' : 'search')} onSticker={disabled ? undefined : onSticker} />}
     {panel === 'search' && <EmojiSearch onEmoji={insertEmoji} onClose={() => { Keyboard.dismiss(); setPanel('emoji') }} />}

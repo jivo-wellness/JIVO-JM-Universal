@@ -32,6 +32,7 @@ export function useConversationLive(conversation: ConversationItem | null, me: s
   }
   const off = realtime.on<{ conversation?: string; user?: string; last_seen_at?: string }>('*', ({ type, data }) => {
    if (!active || !id || !visible.current) return
+   if (type === 'PONG') { loadPresence(); return }
    if (type === 'RESYNC' || type === 'HELLO') { loadMembers(); loadPresence(); return }
    if (type === 'MEMBER_REMOVED' || type === 'MEMBER_ADDED' || type === 'MEMBER_ROLE_CHANGED') { if (data?.conversation === id) loadMembers(); return }
    if (!data?.user) return

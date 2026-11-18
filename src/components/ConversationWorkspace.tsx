@@ -2,6 +2,8 @@ import { keyboardMedia } from '../modules/messenger/media/keyboardMedia'
 import { messageAlbums } from '../modules/messenger/messageAlbums'
 import { isSelfChat } from '../modules/messenger/lib/selfChat'
 import { MessageSkeleton } from './MessageSkeleton'
+import type { PendingSend } from '../modules/messenger/outboxController'
+import { mergePendingPreview, restoreUnsentDraft } from '../modules/messenger/pendingPreview'
 import { PendingMessages } from './PendingMessages'
 import { router, useFocusEffect } from 'expo-router'
 import { AttachmentPreview } from './AttachmentPreview'
@@ -174,7 +176,6 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
   const [pendingFile, setPendingFile] = useState<{ conversation: string; files: PickedFile[]; source: AttachSource; notice: string } | null>(null)
   const pickingFile = useRef(false)
   const atlasEnabled = !!useAtlasStatus()?.enabled
-  const atlasVisible = !preview && atlasEnabled && filter === 'all' && 'atlas jivo business ai'.includes(query.trim().toLowerCase())
   const [actions, setActions] = useState<chat.Message | null>(null)
   const [error, setError] = useState(''); const [sending, setSending] = useState(false)
   // OFF-05: a reaction or edit that failed for lack of a connection says so next to the composer (the banner alone is not tied to the action).
@@ -204,6 +205,8 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
   useChatImmersive(opened && width < 768)
   const live = useConversationLive(preview ? null : selected, me?.id ?? '')
   const [info,setInfo] = useState<chat.Message | null>(null)
+  const [savingMessage, setSavingMessage] = useState<PendingSend | null>(null)
+  const sendInProgress = useRef(false)
   const pending = useSyncExternalStore(outbox.subscribe,outbox.snapshot,outbox.snapshot)
   const historyMatchesSelection = historyState.id === selection?.id
   const messages = historyMatchesSelection ? historyState.window.messages : emptyMessages
@@ -318,6 +321,7 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
     url.searchParams.delete('seq')
     window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
   }, [selectedId, preview, atlasOpen])
+  const messageViewportHeight = useRef(0)
   const contentHeight = useRef(0); const [readerAway, setReaderAway] = useState(false); const scrollOffset = useRef(0); const nearBottom = useRef(true); const followIncoming = useRef(false); const [newMessages, setNewMessages] = useState(false)
   const lastArrival = useRef({ id: selectedId, seq: 0, jump: 0 })
   useEffect(() => {
@@ -376,17 +380,35 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
     draftId.current = randomUUID()
   }
   async function send() {
-    if (!selected || !selected.can.send || sending || (!body.trim() && !attachments.length)) return
+    if (!selected || !selected.can.send || sendInProgress.current || sending || (!body.trim() && !attachments.length)) return
+    sendInProgress.current = true
+    const clientId = draftId.current
+    const generation = selectionGeneration.current
+    const owner = me?.id ?? ''
+    const payload = { client_id: clientId, body: withMentionTokens(body.trim(), live.members), upload_ids: attachments.map(a => a.id), reply_to: reply?.id }
+    followIncoming.current = true; nearBottom.current = true; setReaderAway(false)
+    if (!editing) {
+      setSavingMessage({ owner, conversation: selected.id, payload, attachments, created: Date.now(), status: 'sending' })
+      setBody(''); setForcedCaret(undefined); setCaret({ start: 0, end: 0 })
+    }
     setSending(true); setError('')
     try {
       live.stop()
       setActionNotice('')
       if (editing) history.accept(await chat.editMessage(editing.id, withMentionTokens(body.trim(), live.members)))
-      else await outbox.enqueue(me?.id ?? '', selected.id, { client_id: draftId.current, body: withMentionTokens(body.trim(), live.members), upload_ids: attachments.map(a => a.id), reply_to: reply?.id }, { attachments })
-      if (!editing && me) conversationDrafts.write(me.id, selected.id, '')
-      if (!active.current) return
-      setBody(editing ? conversationDrafts.read(me?.id ?? '', selected.id) : ''); setAttachments([]); setEditing(null); setReply(null); draftId.current = randomUUID(); followIncoming.current = true; nearBottom.current = true; listRef.current?.scrollToEnd({ animated: false }); if (historyState.window.hasMoreAfter) void history.latest(); refresh()
-    } catch (e) { if (active.current) { if (editing) failAction(e); else setError(errorMessage(e)) } } finally { if (active.current) setSending(false) }
+      else await outbox.enqueue(owner, selected.id, payload, { attachments })
+      if (!active.current || generation !== selectionGeneration.current) return
+      // A user can keep typing while the durable queue saves. Never erase that newer draft.
+      if (draftId.current === clientId) {
+        if (!editing && me) conversationDrafts.write(me.id, selected.id, '')
+        setBody(editing ? conversationDrafts.read(owner, selected.id) : ''); draftId.current = randomUUID()
+      }
+      setAttachments([]); setEditing(null); setReply(null); followIncoming.current = true; nearBottom.current = true; listRef.current?.scrollToEnd({ animated: false }); if (historyState.window.hasMoreAfter) void history.latest(); refresh()
+    } catch (e) { if (active.current && generation === selectionGeneration.current) { if (editing) failAction(e); else {
+      setBody(current => restoreUnsentDraft(body, current))
+      conversationDrafts.write(owner, selected.id, restoreUnsentDraft(body, draftId.current === clientId ? '' : conversationDrafts.read(owner, selected.id)))
+      setError(errorMessage(e))
+    } } } finally { sendInProgress.current = false; if (active.current) { setSavingMessage(null); setSending(false) } }
   }
   // Attach pages: the chooser (gallery multi-select, camera, documents), then the full-screen preview / edit page.
   async function attach(source: AttachSource, keyboardUris?: string[]) {
@@ -462,9 +484,6 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
           data={preview ? [] : visibleRows} keyExtractor={item => item.id} extraData={rowState}
           renderItem={({ item }) => <ConversationRow item={item} selected={selected?.id === item.id} disabled={blocked} typing={typingIn.has(item.id)} onPress={() => choose(item)} onMenu={() => setRowMenu(item)} />}
           ListHeaderComponent={<>
-            {atlasVisible && <Pressable accessibilityRole="button" accessibilityLabel="Open Atlas chat" accessibilityState={{ selected: atlasOpen }} onPress={openAtlas} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: atlasOpen ? c.successSoft : pressed ? c.hover : 'transparent' })}>
-              <AtlasIcon size={48} /><View style={{ flex: 1 }}><Text style={{ fontSize: 16, fontFamily: 'Inter_600SemiBold', color: c.text }}>Atlas</Text><Text style={{ fontSize: 14, color: c.muted }}>JIVO Business AI</Text></View>
-            </Pressable>}
             {!preview && filter === 'all' && !query && lockedCount > 0 && <Pressable accessibilityRole="button" accessibilityLabel={`Locked chats, ${lockedCount}`} onPress={() => setFilter('locked')} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, paddingVertical: 12, borderBottomWidth: 1, borderColor: c.border, backgroundColor: pressed ? c.hover : 'transparent' })}>
               <View style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: c.successSoft }}><Icon name="lock" size={20} color={c.brand} /></View>
               <Text style={{ flex: 1, fontFamily: 'Inter_500Medium', fontWeight: '500', color: c.text, fontSize: 15 }}>Locked chats</Text><Text style={{ fontFamily: 'Inter_400Regular', color: c.muted, fontSize: 14 }}>{lockedCount}</Text>
@@ -473,7 +492,7 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
           </>}
           ListFooterComponent={<>
             {!preview && !loading && !items.length && !!conversations.error && <ErrorState message={conversations.error} onRetry={() => void refreshConversations()} />}
-            {!atlasVisible && !preview && !loading && !items.length && !shownHits?.results.length && !error && !conversations.error && <EmptyState title={query ? 'No chats match.' : filter === 'archived' ? 'No archived chats.' : filter === 'locked' ? 'No locked chats.' : lockedCount ? 'No other chats.' : 'No chats yet.'} description={!query && filter === 'all' ? 'Start a conversation with anyone at JIVO.' : undefined} action={!query && filter === 'all' ? <Button title="Start a chat" onPress={() => setPicker(true)} /> : undefined} />}
+            {!preview && !loading && !items.length && !shownHits?.results.length && !error && !conversations.error && <EmptyState title={query ? 'No chats match.' : filter === 'archived' ? 'No archived chats.' : filter === 'locked' ? 'No locked chats.' : lockedCount ? 'No other chats.' : 'No chats yet.'} description={!query && filter === 'all' ? 'Start a conversation with anyone at JIVO.' : undefined} action={!query && filter === 'all' ? <Button title="Start a chat" onPress={() => setPicker(true)} /> : undefined} />}
             {shownHits?.incomplete && <Text accessibilityRole={Platform.OS === 'web' ? ('status' as never) : undefined} style={{ paddingHorizontal: 12, paddingVertical: 8, color: c.muted, fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20 }}>Search incomplete: some messages are unavailable.</Text>}
             {!!shownHits?.results.length && <View accessibilityLabel="Messages found">
               <Text accessibilityRole="header" style={{ borderTopWidth: 1, borderBottomWidth: 1, borderColor: c.border, backgroundColor: c.neutral, paddingHorizontal: 12, paddingVertical: 6, color: c.muted, fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 12, lineHeight: 16, letterSpacing: 0.3, textTransform: 'uppercase' }}>Messages</Text>
@@ -499,9 +518,9 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
             <PeerCallButton conversation={selected} />
             <HeaderButton icon="moreVertical" label="Conversation options" onPress={() => setMenuMode('options')} />
           </View>
-          <View style={{flex:1,backgroundColor:appearance?.type==='color' && /^#[0-9a-f]{6}$/i.test(appearance.color??'')?appearance.color!:'transparent'}}>{backgroundImage&&<Image pointerEvents="none" source={{uri:backgroundImage}} style={{position:'absolute',width:'100%',height:'100%',opacity:0.35}} resizeMode="cover"/>}<FlatList accessibilityLabel={readerAway ? 'Message history' : 'Latest messages'} key={selected.id} ref={listRef} data={displayMessages} initialNumToRender={OPEN_PAGE + 10} pointerEvents={placing ? 'none' : 'auto'} style={{ opacity: placing ? 0 : 1 }} keyExtractor={m => `${m.client_id ?? m.id}:${m.attachments[0]?.id ?? ''}`} ListFooterComponent={<PendingMessages conversation={selected.id} messages={messages} entries={pending.entries} />} contentContainerStyle={{ paddingVertical: 14, flexGrow: 1, justifyContent: 'flex-end' }} keyboardShouldPersistTaps="handled"
-            onLayout={() => { if (nearBottom.current && !historyState.window.hasMoreAfter) listRef.current?.scrollToOffset({ offset: contentHeight.current, animated: false }) }} onViewableItemsChanged={onViewable} viewabilityConfig={viewability} maintainVisibleContentPosition={readerAway ? { minIndexForVisible: 0 } : undefined}
-            scrollEventThrottle={16} onScroll={event => { if (placing) return; const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent; const atBottom = contentSize.height - layoutMeasurement.height - contentOffset.y < 96; const movedUp = contentOffset.y < scrollOffset.current - 1; const moved = Math.abs(contentOffset.y - scrollOffset.current) > 1; scrollOffset.current = contentOffset.y; if (movedUp) { followIncoming.current = false; nearBottom.current = atBottom } else if (atBottom || moved && !followIncoming.current) nearBottom.current = atBottom; setReaderAway(!nearBottom.current); if (nearBottom.current && !historyState.window.hasMoreAfter) setNewMessages(false) }}
+          <View style={{flex:1,backgroundColor:appearance?.type==='color' && /^#[0-9a-f]{6}$/i.test(appearance.color??'')?appearance.color!:'transparent'}}>{backgroundImage&&<Image pointerEvents="none" source={{uri:backgroundImage}} style={{position:'absolute',width:'100%',height:'100%',opacity:0.35}} resizeMode="cover"/>}<FlatList accessibilityLabel={readerAway ? 'Message history' : 'Latest messages'} key={selected.id} ref={listRef} data={displayMessages} initialNumToRender={OPEN_PAGE + 10} pointerEvents={placing ? 'none' : 'auto'} style={{ opacity: placing ? 0 : 1 }} keyExtractor={m => `${m.client_id ?? m.id}:${m.attachments[0]?.id ?? ''}`} ListFooterComponent={<PendingMessages conversation={selected.id} messages={messages} entries={mergePendingPreview(pending.entries, savingMessage, me?.id)} />} contentContainerStyle={{ paddingVertical: 14, flexGrow: 1, justifyContent: 'flex-end' }} keyboardShouldPersistTaps="handled"
+            onLayout={() => { if ((nearBottom.current || followIncoming.current) && !historyState.window.hasMoreAfter) listRef.current?.scrollToOffset({ offset: contentHeight.current, animated: false }) }} onViewableItemsChanged={onViewable} viewabilityConfig={viewability} maintainVisibleContentPosition={readerAway ? { minIndexForVisible: 0 } : undefined}
+            scrollEventThrottle={16} onScroll={event => { if (placing) return; const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent; const resized = messageViewportHeight.current !== layoutMeasurement.height; messageViewportHeight.current = layoutMeasurement.height; if (resized && followIncoming.current && !historyState.window.hasMoreAfter) { listRef.current?.scrollToEnd({ animated: false }); return } const atBottom = contentSize.height - layoutMeasurement.height - contentOffset.y < 96; const movedUp = contentOffset.y < scrollOffset.current - 1; const moved = Math.abs(contentOffset.y - scrollOffset.current) > 1; scrollOffset.current = contentOffset.y; if (movedUp) { followIncoming.current = false; nearBottom.current = atBottom } else if (atBottom || moved && !followIncoming.current) nearBottom.current = atBottom; setReaderAway(!nearBottom.current); if (nearBottom.current && !historyState.window.hasMoreAfter) setNewMessages(false) }}
             onContentSizeChange={(_width, height) => { contentHeight.current = height; scrollRequested(messages.length > 0); if (followIncoming.current) { listRef.current?.scrollToOffset({ offset: contentHeight.current, animated: false }) } }}
             onScrollToIndexFailed={info => { if (jumpAttempts.current++ >= 3) return; listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false }); if (jumpTimer.current) clearTimeout(jumpTimer.current); jumpTimer.current = setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, animated: false, viewPosition: 0, viewOffset: 8 }), 100) }}
             ListEmptyComponent={!pending.entries.some(p => p.conversation === selected.id) && (!historyMatchesSelection || historyState.loading) ? <MessageSkeleton /> : undefined}
@@ -543,7 +562,7 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
           {selected.can.send && <ComposerPreview body={body} />}
           {selected.can.send && mention && <ScrollView horizontal style={{maxHeight:52}} contentContainerStyle={{gap:8}}>{live.members.filter(member => !member.is_me && member.user.name.toLowerCase().includes(mention.query.toLowerCase())).slice(0,8).map(member => <Button key={member.user.id} title={'Mention '+member.user.name} disabled={blocked} onPress={() => { const next = insertMention(body, caret, member.user.name); changeBody(next.text); setCaret(next.caret); setForcedCaret(next.caret) }} />)}</ScrollView>}
           </View>
-          {selected.send_block === 'contact_blocked' && selected.peer ? <BlockedBanner onPress={() => setBlocking({ id: selected.peer!.id, name: selected.title, blocked: true })} /> : selected.can.send ? <ChatComposer onKeyboardMedia={!editing && selected.can.send_file ? uris => void attach('media', uris) : undefined} key={selected.id} disabled={blocked} sendDisabled={!body.trim() && !attachments.length} sendLabel={sending ? 'Sending' : editing ? 'Save edit' : 'Send message'} onSend={() => void send()} attach={!editing ? { canSendFile: selected.can.send_file, allowed: { location: !!me?.capabilities.includes('JM_LOCATION_SHARE'), contact: !!me?.capabilities.includes('JM_CONTACT_SHARE'), poll: !!me?.capabilities.includes('JM_POLL_CREATE'), event: !!me?.capabilities.includes('JM_EVENT_CREATE') }, onDocument: () => void attach('document'), onMedia: () => void attach('media'), onCamera: () => void attach('camera'), onLocation: () => setTool('location'), onContact: () => setTool('contact'), onPoll: () => setTool('poll'), onEvent: () => setTool('event') } : undefined} onSticker={!editing && selected.can.send_file ? async file => { await enqueueFiles(me?.id ?? '', selected.id, { client_id: randomUUID(), body: '', upload_ids: [], reply_to: reply?.id }, [{ key: randomUUID(), file }]); setReply(null); followIncoming.current = true; nearBottom.current = true; listRef.current?.scrollToEnd({ animated: false }); refresh() } : undefined} onVoice={!editing && selected.can.send_file ? async file => { const clientId = randomUUID(); await enqueueFiles(me?.id ?? '', selected.id, { client_id: clientId, body: '', upload_ids: [] }, [{ key: randomUUID(), file }]); followIncoming.current = true; nearBottom.current = true; listRef.current?.scrollToEnd({ animated: false }); refresh() } : undefined} inputProps={{ value: body, onBlur: live.stop, selection: forcedCaret, onSelectionChange: event => setCaret(event.nativeEvent.selection), onChangeText: value => { setForcedCaret(undefined); changeBody(value); if (value.trim()) live.typing(); else live.stop() } }} /> : <Text style={{ color: selected.send_block === 'peer_inactive' ? (c.dark ? '#fbbf24' : '#b45309') : c.muted, backgroundColor: selected.send_block === 'peer_inactive' ? (c.dark ? '#3b3020' : '#fef3c7') : 'transparent', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderColor: c.border, textAlign: 'center', fontFamily: 'Inter_400Regular', fontSize: 14 }}>{selected.send_block === 'peer_inactive' ? 'This person is no longer active. You can still read your history, but cannot send new messages.' : 'Sending is unavailable in this conversation.'}</Text>}
+          {selected.send_block === 'contact_blocked' && selected.peer ? <BlockedBanner onPress={() => setBlocking({ id: selected.peer!.id, name: selected.title, blocked: true })} /> : selected.can.send ? <ChatComposer onKeyboardMedia={!editing && selected.can.send_file ? uris => void attach('media', uris) : undefined} key={selected.id} busy={blocked} sendDisabled={!body.trim() && !attachments.length} sendLabel={sending ? 'Sending' : editing ? 'Save edit' : 'Send message'} onSend={() => void send()} attach={!editing ? { canSendFile: selected.can.send_file, allowed: { location: !!me?.capabilities.includes('JM_LOCATION_SHARE'), contact: !!me?.capabilities.includes('JM_CONTACT_SHARE'), poll: !!me?.capabilities.includes('JM_POLL_CREATE'), event: !!me?.capabilities.includes('JM_EVENT_CREATE') }, onDocument: () => void attach('document'), onMedia: () => void attach('media'), onCamera: () => void attach('camera'), onLocation: () => setTool('location'), onContact: () => setTool('contact'), onPoll: () => setTool('poll'), onEvent: () => setTool('event') } : undefined} onSticker={!editing && selected.can.send_file ? async file => { await enqueueFiles(me?.id ?? '', selected.id, { client_id: randomUUID(), body: '', upload_ids: [], reply_to: reply?.id }, [{ key: randomUUID(), file }]); setReply(null); followIncoming.current = true; nearBottom.current = true; listRef.current?.scrollToEnd({ animated: false }); refresh() } : undefined} onVoice={!editing && selected.can.send_file ? async file => { const clientId = randomUUID(); await enqueueFiles(me?.id ?? '', selected.id, { client_id: clientId, body: '', upload_ids: [] }, [{ key: randomUUID(), file }]); followIncoming.current = true; nearBottom.current = true; listRef.current?.scrollToEnd({ animated: false }); refresh() } : undefined} inputProps={{ value: body, onBlur: live.stop, selection: forcedCaret, onSelectionChange: event => setCaret(event.nativeEvent.selection), onChangeText: value => { setForcedCaret(undefined); changeBody(value); if (value.trim()) live.typing(); else live.stop() } }} /> : <Text style={{ color: selected.send_block === 'peer_inactive' ? (c.dark ? '#fbbf24' : '#b45309') : c.muted, backgroundColor: selected.send_block === 'peer_inactive' ? (c.dark ? '#3b3020' : '#fef3c7') : 'transparent', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderColor: c.border, textAlign: 'center', fontFamily: 'Inter_400Regular', fontSize: 14 }}>{selected.send_block === 'peer_inactive' ? 'This person is no longer active. You can still read your history, but cannot send new messages.' : 'Sending is unavailable in this conversation.'}</Text>}
         </> : <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12, padding: 24 }}><View style={{ width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: c.successSoft }}><Icon name="messagesSquare" size={32} color={c.brand} /></View><Text accessibilityRole="header" style={{ fontFamily: 'Inter_600SemiBold', fontWeight: '600', color: c.text, fontSize: 18, lineHeight: 28, textAlign: 'center' }}>JIVO Messenger</Text><Text style={{ fontFamily: 'Inter_400Regular', color: c.muted, fontSize: 14, lineHeight: 20, textAlign: 'center', maxWidth: 384 }}>Choose a chat, or start one with anyone across JIVO.</Text></View>}
       </View>}
     </View>
