@@ -2,7 +2,7 @@
   "expo": {
     "name": "JIVO JM",
     "slug": "jivo-jm-universal",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "default",
     "icon": "./public/icons/icon-512.png",
     "userInterfaceStyle": "automatic",
@@ -22,7 +22,7 @@
         "android.permission.WRITE_CONTACTS",
         "android.permission.DETECT_SCREEN_CAPTURE"
       ],
-      "versionCode": 2
+      "versionCode": 3
     },
     "web": {
       "favicon": "./public/favicon-32.png"
