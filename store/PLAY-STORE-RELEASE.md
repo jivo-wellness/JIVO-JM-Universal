@@ -4,7 +4,27 @@ Updated 19 November 2026. Package: `com.jivo.jm`. Release candidate: **1.0.1 (ve
 
 ## Build status
 
-Release configuration and listing assets are prepared. The owner chose **local builds**, so source and signing credentials are not uploaded to Expo Build. Expo project `317d0883-008d-4947-8877-03c463e00b65` is linked for app identity; that does not configure Firebase push credentials. Build results are recorded below once verified.
+Both signed artifacts were built locally and verified on 19 November 2026. The owner chose **local builds**, so source and signing credentials were not uploaded to Expo Build. Expo project `317d0883-008d-4947-8877-03c463e00b65` is linked for app identity; that does not configure Firebase push credentials.
+
+### Verified release artifacts
+
+Build source commit: `e1c170e`. Files are in the local, Git-ignored `release-artifacts/` directory:
+
+| File | Purpose | Size (bytes) | SHA-256 |
+| --- | --- | ---: | --- |
+| `jivo-jm-1.0.1-2.apk` | Direct installation on ARM64 phones | 44,623,131 | `1f62c2cd9e44d3a9b27b882d30ba81b54678aa71b2631b431c5b681eb06e1fcc` |
+| `jivo-jm-1.0.1-2.aab` | Play Console internal testing upload | 37,859,530 | `503b96dda66cb1f5bd091f3c5a3a878462b7a8072830840bfd9f839983a7e9aa` |
+
+- Gradle `assembleRelease` and `bundleRelease`: passed.
+- TypeScript checks and ESLint: passed.
+- APK signature verification: passed, matching the existing upload certificate below.
+- AAB JAR signature: verified, same certificate; self-signed certificate and JAR streaming-order warnings were emitted. Google bundletool 1.18.3 validation also passed.
+- APK ZIP alignment and all 28 native libraries in both artifacts: passed 16 KB alignment checks.
+- Package `com.jivo.jm`, version `1.0.1`, version code `2`, minimum SDK `24`, target SDK `36`, architecture `arm64-v8a`.
+- Production API `https://messenger.jivo.in` confirmed in both bundled JavaScript files.
+- No Android device was connected for installation testing. These checks validate the build artifacts, not every runtime flow. Start with Internal testing and complete section 10 before production.
+
+The store ZIP contains listing copy, images, screenshot metadata and this guide. APK/AAB files are separate downloads. Store screenshots use synthetic data rendered from the Universal web app; compare them with the installed native build before submission.
 
 The owner confirmed this is the first Play upload. Version code 2 is valid for a first release. Increase it for every later Play upload. Keep the package name unchanged.
 
