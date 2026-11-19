@@ -2,6 +2,7 @@
 param(
     [ValidateSet('x86_64', 'arm64-v8a')][string] $Architecture = 'x86_64',
     [switch] $Release,
+    [switch] $Bundle,
     # JIVO's own signing key (lives outside every repo). Missing keystore = template debug key + warning.
     [string] $KeystorePath = 'C:\JIVO-keys\jivo-jm-upload.jks',
     [string] $KeyAlias = 'jivo-jm'
@@ -16,6 +17,8 @@ $signingPasswordVariables = @('ORG_GRADLE_PROJECT_android.injected.signing.store
 $mappedDrive = $null
 Push-Location -LiteralPath $project
 try {
+    if ($Bundle) { $Release = $true }
+    if ($Release -and -not (Test-Path -LiteralPath $KeystorePath -PathType Leaf)) { throw 'Release builds require the existing JM upload key; debug signing is not allowed.' }
     $configHash = (@('app.json', 'package-lock.json') | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $project $_) -Algorithm SHA256).Hash }) -join ':'
     $marker = Join-Path $project 'android/.jm-config-hash'
     $generatedHash = if (Test-Path -LiteralPath $marker) { (Get-Content -LiteralPath $marker -Raw).Trim() } else { '' }
@@ -41,7 +44,7 @@ try {
     } else {
         Write-Warning "Keystore $KeystorePath not found: signing with the public React Native template debug key. Production must NOT trust this build for passkeys / app links."
     }
-    $task = if ($Release) { 'app:assembleRelease' } else { 'app:assembleDebug' }
+    $tasks = if ($Bundle) { @('app:assembleRelease', 'app:bundleRelease') } elseif ($Release) { @('app:assembleRelease') } else { @('app:assembleDebug') }
     if ($Release) { $env:NODE_ENV = 'production' } elseif (-not $env:NODE_ENV) { $env:NODE_ENV = 'development' }
     # Generated React Native target names are long even after object hashing.
     # Give only CMake's app staging directory a temporary short drive path.
@@ -55,10 +58,11 @@ try {
     if (-not $mappedDrive) { throw 'No free drive letter is available for the temporary native build cache.' }
     $env:JM_NATIVE_APP_STAGE = "$mappedDrive\.native-build"
     Set-Location -LiteralPath (Join-Path $project 'android')
-    & .\gradlew.bat $task --init-script (Join-Path $PSScriptRoot 'short-cmake-paths.gradle') --no-daemon --no-parallel --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=768m' '-Pkotlin.compiler.execution.strategy=in-process' "-PreactNativeArchitectures=$Architecture" -x lint -x test --console=plain @signingArgs
+    & .\gradlew.bat @tasks --init-script (Join-Path $PSScriptRoot 'short-cmake-paths.gradle') --no-daemon --no-parallel --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=768m' '-Pkotlin.compiler.execution.strategy=in-process' "-PreactNativeArchitectures=$Architecture" -x lint -x test --console=plain @signingArgs
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     if ($Release) { Write-Output 'Built android/app/build/outputs/apk/release/app-release.apk. Install it with adb install -r, or copy it to the phone.' }
     else { Write-Output 'Built android/app/build/outputs/apk/debug/app-debug.apk. Start the emulator, then run npm.cmd run android:launch.' }
+    if ($Bundle) { Write-Output 'Built android/app/build/outputs/bundle/release/app-release.aab for Google Play.' }
 } finally {
     $env:CMAKE_BUILD_PARALLEL_LEVEL = $previousCmake
     $env:NODE_ENV = $previousNode

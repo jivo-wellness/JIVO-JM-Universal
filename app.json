@@ -157,6 +157,12 @@
         }
       ]
     ],
-    "scheme": "jivo-jm"
+    "scheme": "jivo-jm",
+    "extra": {
+      "eas": {
+        "projectId": "317d0883-008d-4947-8877-03c463e00b65"
+      }
+    },
+    "owner": "rohitrathod12"
   }
 }

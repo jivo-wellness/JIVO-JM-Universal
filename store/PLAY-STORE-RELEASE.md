@@ -1,12 +1,26 @@
 # JIVO JM - Android release and Play Store upload
 
-Prepared 18 November 2026. Package: `com.jivo.jm`. Release candidate: **1.0.1 (version code 2)**.
+Updated 19 November 2026. Package: `com.jivo.jm`. Release candidate: **1.0.1 (version code 2)**.
 
 ## Build status
 
-Release configuration and listing assets are prepared. **The new APK and AAB have not been built:** Expo CLI reports `Not logged in`. An old `android/app/build/outputs/apk/debug/app-debug.apk` is a development build and must not be uploaded as this release.
+Release configuration and listing assets are prepared. The owner chose **local builds**, so source and signing credentials are not uploaded to Expo Build. Expo project `317d0883-008d-4947-8877-03c463e00b65` is linked for app identity; that does not configure Firebase push credentials. Build results are recorded below once verified.
 
-Before building, check the highest version code already uploaded to this Play app. Code 2 assumes only the earlier code-1 build exists. If Play has code 2 or higher, increase `expo.android.versionCode` in `app.json` before both builds. Keep the package name unchanged.
+The owner confirmed this is the first Play upload. Version code 2 is valid for a first release. Increase it for every later Play upload. Keep the package name unchanged.
+
+## Local build (selected workflow)
+
+Android Studio's SDK/NDK and Java must be installed. Use the original JM keystore already on this PC; it never leaves the machine in this workflow.
+
+```powershell
+cd C:\Users\JIVO\Desktop\JM\JIVO-JM-Universal
+$env:EXPO_PUBLIC_API_ORIGIN = 'https://messenger.jivo.in'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-android.ps1 -Release -Bundle -Architecture arm64-v8a
+```
+
+This builds both `android/app/build/outputs/apk/release/app-release.apk` and `android/app/build/outputs/bundle/release/app-release.aab`. Release mode refuses to fall back to the public debug key. This build targets **ARM64 Android devices**, not x86 emulators or 32-bit phones. The AAB lets Play generate device-specific install packages within that supported architecture. It contains bundled JavaScript and does not require Metro.
+
+The EAS steps below remain an optional future alternative, requiring explicit authorization to upload source and signing credentials. They are not required for the selected local build.
 
 ## 1. Sign in and link the JM project
 
