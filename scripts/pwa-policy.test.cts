@@ -36,7 +36,7 @@ function worker(failInstall = false) {
 
 test('private API, files, sockets, admin endpoints and unknown navigation never use the shell cache', () => {
   const sw = worker()
-  for (const url of ['/api/jm/messages/', '/api/jm/files/a/download/', '/ws/', '/files/private.pdf', '/media/avatar', '/django-admin/', '/healthz', '/readyz', '/unknown']) {
+  for (const url of ['/api/jm/tickets/', '/api/jm/tickets/TKT-1234567890ABCDEF/files/file/', '/api/jm/messages/', '/api/jm/files/a/download/', '/ws/', '/files/private.pdf', '/media/avatar', '/django-admin/', '/healthz', '/readyz', '/unknown']) {
     assert.equal(sw.request(url, 'GET', 'navigate'), undefined, url)
     assert.equal(sw.request(url), undefined, url)
   }
@@ -81,10 +81,10 @@ test('every Expo Router page is served the SPA shell by the service worker, prev
   const pages: string[] = []
   const walk = (dir: string, prefix: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) { walk(path.join(dir, entry.name), `${prefix}/${entry.name}`); continue }
+      if (entry.isDirectory()) { walk(path.join(dir, entry.name), /^\(.+\)$/.test(entry.name) ? prefix : `${prefix}/${entry.name}`); continue }
       const name = entry.name.replace(/\.(?:web\.|native\.)?tsx?$/, '')
       if (name === entry.name || name.startsWith('_') || name.startsWith('+')) continue
-      pages.push(`${prefix}/${name === 'index' ? '' : name}`.replace(/\[[^\]]+\]/g, 'sample-token').replace(/\/$/, '') || '/')
+      pages.push(`${prefix}/${name === 'index' ? '' : name}`.replace('[code]', 'TKT-1234567890ABCDEF').replace(/\[[^\]]+\]/g, 'sample-token').replace(/\/$/, '') || '/')
     }
   }
   walk(appDir, '')

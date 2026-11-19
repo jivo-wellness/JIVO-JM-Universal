@@ -19,10 +19,10 @@ const send = require('../../assets/icons/SendHorizontal.png')
 const coarsePointer = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches
 
 /** Reference Composer: 40px round + / mic / send buttons around a 40px, 20px-radius message box. */
-function RoundButton({ label, onPress, disabled = false, primary = false, active = false, expanded, children }: { label: string; onPress: () => void; disabled?: boolean; primary?: boolean; active?: boolean; expanded?: boolean; children: ReactNode }) {
+function RoundButton({ label, onPress, disabled = false, primary = false, active = false, expanded, hint, children }: { label: string; hint?: string; onPress: () => void; disabled?: boolean; primary?: boolean; active?: boolean; expanded?: boolean; children: ReactNode }) {
   const c = useColors(); const { width } = useWindowDimensions()
   // DEF-005: the Pressable is the 44px phone hit box; the 40px circle inside keeps the reference look.
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled, expanded }} disabled={disabled} onPress={onPress} hitSlop={4} style={{ ...touchBox(40, width), flexShrink: 0 }}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint} accessibilityState={{ disabled, expanded }} disabled={disabled} onPress={onPress} hitSlop={4} style={{ ...touchBox(40, width), flexShrink: 0 }}>
     {({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => <View style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 20, backgroundColor: primary ? (pressed || hovered ? c.primaryHover : c.primary) : pressed || hovered ? c.hover : 'transparent', opacity: disabled ? 0.5 : 1, transform: active ? [{ rotate: '45deg' }] : [] }}>{children}</View>}
   </Pressable>
 }
@@ -36,7 +36,8 @@ type Panel = 'none' | 'emoji' | 'search' | 'sticker-search'
  * microphone while nothing is typed and Send otherwise. The composer keeps itself (and so the chat above it) directly
  * over the on-screen keyboard, and the emoji panel (Emoji | Stickers) takes the keyboard's place at the same height.
  */
-export function ChatComposer({ inputProps, onSend, sendLabel = 'Send message', sendDisabled, disabled = false, busy = false, onTools, attach, onVoice, onSticker, onKeyboardMedia }: {
+export function ChatComposer({ footer, inputProps, onSend, sendLabel = 'Send message', sendDisabled, disabled = false, busy = false, onTools, attach, onVoice, voiceUnavailableReason, onSticker, onKeyboardMedia }: {
+  footer?: ReactNode
   onKeyboardMedia?: (uris: string[]) => void
   inputProps: TextInputProps
   onSend: () => void
@@ -51,6 +52,8 @@ export function ChatComposer({ inputProps, onSend, sendLabel = 'Send message', s
   attach?: AttachActions
   /** When given, the microphone replaces Send while nothing is typed or attached. */
   onVoice?: (file: PickedFile) => Promise<void>
+  /** Show the matching microphone as unavailable without starting a recorder. */
+  voiceUnavailableReason?: string
   /** When given, the emoji panel has a Stickers tab; a tapped sticker is sent at once (WhatsApp). */
   onSticker?: StickerSend
 }) {
@@ -106,14 +109,17 @@ export function ChatComposer({ inputProps, onSend, sendLabel = 'Send message', s
             <KeyboardMediaInput onMedia={!controlsDisabled ? onKeyboardMedia : undefined}><Field inset={false} {...inputProps} ref={input} onFocus={event => { if (panel !== 'none') { setPanel('none'); setAwaitingKeyboard(!web) } inputProps.onFocus?.(event) }} onSelectionChange={event => { caret.current = event.nativeEvent.selection; inputProps.onSelectionChange?.(event) }} onKeyPress={event => { inputProps.onKeyPress?.(event); if (!web) return; const key = event.nativeEvent as unknown as { key: string; shiftKey?: boolean; isComposing?: boolean }; if (!enterSends(key, coarsePointer())) return; (event as unknown as { preventDefault?: () => void }).preventDefault?.(); if (!controlsDisabled && !sendDisabled) onSend() }} compact label="Message" placeholder={inputProps.placeholder ?? 'Message'} multiline numberOfLines={web ? 1 : undefined} editable={!disabled && inputProps.editable !== false} style={[{ borderWidth: 0, borderRadius: 20, boxShadow: 'none', maxHeight: 132, minHeight: 40, paddingLeft: 6, paddingRight: 6, paddingTop: 10, paddingBottom: 10, fontSize: 16, lineHeight: 22, backgroundColor: 'transparent' }, inputProps.style]} /></KeyboardMediaInput>
             {attach ? <View><RoundButton label="Attach" disabled={controlsDisabled} expanded={!!anchor} onPress={openAttach}><Icon name="paperclip" size={22} color={anchor ? c.brand : c.muted} /></RoundButton></View>
               : onTools && <RoundButton label="Message tools" disabled={controlsDisabled} onPress={onTools}><Icon name="paperclip" size={22} color={c.muted} /></RoundButton>}
-            {attach && sendDisabled && <RoundButton label="Camera" disabled={controlsDisabled || !attach.canSendFile} onPress={attach.onCamera}><Icon name="camera" size={23} color={c.muted} /></RoundButton>}
+            {attach && sendDisabled && <RoundButton label="Camera" hint={attach.unavailableReason} disabled={controlsDisabled || !attach.canSendFile} onPress={attach.onCamera}><Icon name="camera" size={23} color={c.muted} /></RoundButton>}
           </View>}
       {voice.mode === 'review' || voice.mode === 'locked'
         ? <RoundButton label="Send voice message" primary disabled={controlsDisabled || voice.busy || (voice.mode === 'locked' && voice.phase !== 'recording')} onPress={() => void voice.send()}><Image accessible={false} source={send} style={{ width: 20, height: 20, tintColor: '#ffffff' }} /></RoundButton>
         : showMic || recording
           ? <MicButton voice={voice} disabled={controlsDisabled} />
-          : <RoundButton label={sendLabel} primary disabled={controlsDisabled || sendDisabled} onPress={onSend}><Image accessible={false} source={send} style={{ width: 20, height: 20, tintColor: '#ffffff' }} /></RoundButton>}
+          : voiceUnavailableReason && !inputProps.value?.trim()
+            ? <RoundButton label="Voice messages unavailable" hint={voiceUnavailableReason} primary disabled onPress={() => {}}><Icon name="mic" size={24} color="#ffffff" /></RoundButton>
+            : <RoundButton label={sendLabel} primary disabled={controlsDisabled || sendDisabled} onPress={onSend}><Image accessible={false} source={send} style={{ width: 20, height: 20, tintColor: '#ffffff' }} /></RoundButton>}
     </View>
+    {footer}
     {panel === 'emoji' && <EmojiPanel height={height} tab={tab} onTab={setTab} onEmoji={insertEmoji} onBackspace={backspace} onSearch={() => setPanel(tab === 'stickers' && onSticker ? 'sticker-search' : 'search')} onSticker={disabled ? undefined : onSticker} />}
     {panel === 'search' && <EmojiSearch onEmoji={insertEmoji} onClose={() => { Keyboard.dismiss(); setPanel('emoji') }} />}
     {panel === 'sticker-search' && onSticker && <StickerSearch onSticker={onSticker} onClose={() => { Keyboard.dismiss(); setPanel('emoji') }} />}

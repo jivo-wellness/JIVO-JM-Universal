@@ -1,13 +1,11 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Animated, Easing, Platform, Pressable, Text, View, type ViewStyle } from 'react-native'
-import { realtime } from '../core/realtime/socket'
+import { useDeviceOffline } from '../shared/useDeviceOffline'
 import { Button, Card, glass, useColors } from '../ui'
-import { ConnectionBanner } from '../shared/connectionBanner'
 import { Icon } from './Icon'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 const NETWORK = 'Cannot reach JM'
-const OFFLINE_TEXT = 'No internet connection. Messages you send wait and go out when you’re back.'
 
 /** Reference animate-spin: one turn per second. */
 function Spinning({ children }: { children: ReactNode }) {
@@ -19,33 +17,9 @@ function Spinning({ children }: { children: ReactNode }) {
   return <Animated.View style={{ transform: [{ rotate: turn.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }}>{children}</Animated.View>
 }
 
-/** What the chat page reports to the screen-level pill (it sits below the shell header, the pill sits at the top). */
-interface Report { error: string; retrying: boolean; retry?: () => void }
-let report: Report | null = null
-const reportListeners = new Set<() => void>()
-const setReport = (next: Report | null) => { report = next; reportListeners.forEach(fn => fn()) }
-const subscribeReport = (fn: () => void) => { reportListeners.add(fn); return () => { reportListeners.delete(fn) } }
-const readReport = () => report
-
-/**
- * Reference core/pwa/ConnectionBanner: a small glass pill fixed at the top of the screen. What it shows comes from the
- * ConnectionBanner state machine (src/shared/connectionBanner.ts): "Reconnecting…" / the offline sentence / a screen's
- * "Cannot reach JM" only after the trouble has lasted 4 s (a blip shows nothing), and a short "Connected" only after
- * such an outage. `placement="inline"` (the chat page) draws only the thin bar for a screen's own non-network failure
- * and hands its network error and retry to the top pill that Workspace draws on every page.
- */
+/** Only device connectivity controls the offline notice; action errors stay beside their screen. */
 export function ConnectionStatus({ error, onRetry, retrying = false, placement = 'top' }: { error?: string | null; onRetry?: () => void; retrying?: boolean; reconnecting?: boolean; placement?: 'top' | 'inline' }) {
-  const retryRef = useRef(onRetry)
-  useEffect(() => { retryRef.current = onRetry })
-  const inline = placement === 'inline'
-  const message = error ?? ''
-  const hasRetry = !!onRetry
-  useEffect(() => {
-    if (!inline) return
-    setReport({ error: message, retrying, retry: hasRetry ? () => retryRef.current?.() : undefined })
-    return () => setReport(null)
-  }, [inline, message, retrying, hasRetry])
-  if (inline) return message && !isNetworkError(message) ? <ErrorBar error={message} onRetry={onRetry} retrying={retrying} /> : null
+  if (placement === 'inline') return error && !isNetworkError(error) ? <ErrorBar error={error} onRetry={onRetry} retrying={retrying} /> : null
   return <TopPill error={error} onRetry={onRetry} retrying={retrying} />
 }
 
@@ -61,23 +35,9 @@ function ErrorBar({ error, onRetry, retrying }: { error: string; onRetry?: () =>
 }
 
 function TopPill({ error: own, onRetry: ownRetry, retrying: ownRetrying }: { error?: string | null; onRetry?: () => void; retrying: boolean }) {
-  const [banner] = useState(() => new ConnectionBanner(realtime))
-  const view = useSyncExternalStore(banner.subscribe, banner.view, banner.view)
-  const status = useSyncExternalStore(realtime.subscribe, realtime.snapshot, realtime.snapshot)
-  const reported = useSyncExternalStore(subscribeReport, readReport, readReport)
-  const error = own || reported?.error || ''
-  const onRetry = own ? ownRetry : reported?.retry
-  const retrying = own ? ownRetrying : !!reported?.retrying
-  // "Offline: showing recently synchronized messages." is the cached view, not a failure of this screen.
-  const networkError = !!error && isNetworkError(error)
-  useEffect(() => { banner.setNetworkError(networkError) }, [banner, networkError])
-  if (own && !networkError) return <ErrorBar error={own} onRetry={ownRetry} retrying={ownRetrying} />
-  if (status === 'forbidden' && view === 'none') return <Pill tone="danger" icon="alert" text="Live updates unavailable. Refresh your session." />
-  if (view === 'none') return null
-  if (view === 'connected') return <Pill tone="success" icon="wifi" text="Connected" />
-  if (view === 'offline') return <Pill tone="danger" icon="cloudOff" text={OFFLINE_TEXT} />
-  if (view === 'network' && networkError) return <Pill tone="brand" icon="refreshCw" spin text={error!} onPress={!retrying ? onRetry : undefined} />
-  return <Pill tone="brand" icon="refreshCw" spin text="Reconnecting…" />
+  const offline = useDeviceOffline()
+  if (own && !isNetworkError(own)) return <ErrorBar error={own} onRetry={ownRetry} retrying={ownRetrying} />
+  return offline ? <Pill tone="danger" icon="cloudOff" text="No internet" /> : null
 }
 
 function Pill({ tone, icon, text, spin = false, onPress }: { tone: 'brand' | 'danger' | 'success'; icon: 'refreshCw' | 'cloudOff' | 'wifi' | 'alert'; text: string; spin?: boolean; onPress?: () => void }) {

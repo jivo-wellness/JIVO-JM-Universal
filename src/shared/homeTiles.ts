@@ -1,5 +1,6 @@
 import { allows, OVERSIGHT_ACCESS, type CapabilityRule } from '../config/capabilities'
 const tiles: { title: string; description: string; href: string; rule?: CapabilityRule }[] = [
+ { title: 'Bug tickets', description: 'Report issues and track fixes.', href: '/tickets', rule: 'JM_ACCESS' },
  { title: 'Messenger', description: 'Conversations, files and your team.', href: '/messenger', rule: 'JM_ACCESS' },
  { title: 'Passwords', description: 'Your vaults and shared passwords.', href: '/passwords', rule: 'JP_ACCESS' },
  { title: 'Profile & security', description: 'Your details, sign-in and devices.', href: '/profile' },

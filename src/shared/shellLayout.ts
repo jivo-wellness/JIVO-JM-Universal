@@ -38,7 +38,7 @@ export const controlHeight = (platform: string) => (platform === 'web' ? 40 : 44
  */
 export const chatListWidth = (width: number) => (width >= 1024 ? 400 : 360)
 
-export type ShellIcon = 'home' | 'messagesSquare' | 'key' | 'clipboardCheck' | 'bell' | 'user' | 'shield' | 'shieldCheck' | 'users' | 'lockKeyhole' | 'megaphone' | 'tools' | 'eye'
+export type ShellIcon = 'home' | 'messagesSquare' | 'key' | 'clipboardCheck' | 'bell' | 'user' | 'shield' | 'shieldCheck' | 'users' | 'lockKeyhole' | 'megaphone' | 'tools' | 'eye' | 'alertTriangle'
 /** `query` marks a link to one view of a page (e.g. an Admin tab), so it is active only on that view. */
 export type ShellLink = { title: string; tabTitle: string; href: string; icon: ShellIcon; query?: { key: string; value: string; fallback?: boolean } }
 
@@ -65,12 +65,13 @@ export function shellLinks(capabilities: readonly string[], preview = false): { 
   const admin = can(ADMIN_ACCESS) && { title: 'Administration', tabTitle: 'Admin', href: '/admin', icon: 'shield' } as ShellLink
   const oversight = can(OVERSIGHT_ACCESS) && { title: 'Oversight', tabTitle: 'Oversight', href: '/oversight', icon: 'eye' } as ShellLink
   const audit = can('ADMIN_AUDIT_VIEW') && { title: 'Audit log', tabTitle: 'Audit', href: '/audit', icon: 'shieldCheck' } as ShellLink
-  const rail = keep([home, chats, inbox, vault, launcher, approvals, people, groups, security, oversight, audit])
+  const tickets = can('JM_ACCESS') && { title: 'Bug tickets', tabTitle: 'Tickets', href: '/tickets', icon: 'alertTriangle' } as ShellLink
+  const rail = keep([home, chats, inbox, tickets, vault, launcher, approvals, people, groups, security, oversight, audit])
   return {
     rail,
     tabs: keep([home, vault ? launcher : can('JM_ACCESS') && alerts, chats, vault || launcher, profile]),
     // Reference: on phones the remaining pages (and Sign out) are reached from Profile.
-    account: keep([profile, can('JM_ACCESS') && alerts, launcher, approvals, admin, oversight, audit]),
+    account: keep([profile, tickets, can('JM_ACCESS') && alerts, launcher, approvals, admin, oversight, audit]),
     tools: chats ? '/notifications' : rail.at(-1)?.href ?? null,
   }
 }

@@ -59,17 +59,44 @@ export function ViewerVideo({ attachment }: { attachment: Attachment }) {
     {!uri ? note('This video is unavailable.') : resource.loading ? <ActivityIndicator accessibilityLabel="Loading video" color="#ffffff" /> : resource.error ? note(errorMessage(resource.error)) : resource.value ? <ViewerVideoPlayer source={resource.value} /> : null}
   </View>
 }
+// Expo Video exposes imperative native setters; these event handlers do not mutate React state.
+/* eslint-disable react-hooks/immutability */
 function ViewerVideoPlayer({ source }: { source: MediaSource }) {
-  const player = useVideoPlayer({ ...source, useCaching: false }, value => { value.loop = false; value.staysActiveInBackground = false; value.showNowPlayingNotification = false })
+  const player = useVideoPlayer({ ...source, useCaching: false }, value => { value.loop = false; value.staysActiveInBackground = false; value.showNowPlayingNotification = false; value.timeUpdateEventInterval = 0.25; value.play() })
   const status = useEvent(player, 'statusChange', { status: player.status })
+  const { isPlaying } = useEvent(player, 'playingChange', { isPlaying: player.playing })
+  const progress = useEvent(player, 'timeUpdate', { currentTime: 0, currentLiveTimestamp: null, currentOffsetFromLive: null, bufferedPosition: 0 })
+  const [controls, setControls] = useState(true)
+  const [rate, setRate] = useState(1)
+  const [width, setWidth] = useState(0)
+  const [scrub, setScrub] = useState<number | null>(null)
+  const duration = player.duration || 0
+  const position = scrub ?? progress.currentTime
+  const ready = status.status === 'readyToPlay'
+  const time = (seconds: number) => `${String(Math.floor(Math.max(0, seconds) / 60)).padStart(2, '0')}:${String(Math.floor(Math.max(0, seconds) % 60)).padStart(2, '0')}`
+  const seek = (x: number) => Math.max(0, Math.min(duration, width ? x / width * duration : 0))
+  useEffect(() => { if (!controls || !isPlaying || scrub !== null) return; const timer = setTimeout(() => setControls(false), 3000); return () => clearTimeout(timer) }, [controls, isPlaying, scrub])
   useEffect(() => subscribeLifecycle(active => { if (!active) player.pause() }), [player])
   return <View style={{ flex: 1, justifyContent: 'center' }}>
-    <VideoView player={player} nativeControls crossOrigin="use-credentials" contentFit="contain" fullscreenOptions={{ enable: true }} style={{ width: '100%', height: '100%' }} />
+      <VideoView player={player} nativeControls={false} surfaceType="textureView" crossOrigin="use-credentials" contentFit="contain" style={{ position: 'absolute', inset: 0 }} />
+    <Pressable accessibilityRole="button" accessibilityLabel="Show or hide video controls" onPress={() => setControls(v => !v)} style={{ position: 'absolute', inset: 0 }} />
+    {(controls || !isPlaying) && ready && <>
+      <Pressable accessibilityRole="button" accessibilityLabel={isPlaying ? 'Pause video' : 'Play video'} onPress={() => { setControls(true); if (isPlaying) player.pause(); else { if (player.currentTime >= duration - 0.1) player.currentTime = 0; player.play() } }} style={{ position: 'absolute', alignSelf: 'center', width: 68, height: 68, borderRadius: 34, backgroundColor: '#00000077', alignItems: 'center', justifyContent: 'center' }}><Icon name={isPlaying ? 'pause' : 'play'} size={34} color="white" /></Pressable>
+      <View style={{ position: 'absolute', bottom: 12, left: 12, right: 12, paddingHorizontal: 8, borderRadius: 24, backgroundColor: '#00000077', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <Text style={{ color: 'white', fontSize: 12, fontVariant: ['tabular-nums'] }}>{time(position)}</Text>
+        <View accessibilityRole="adjustable" accessibilityLabel="Video position" accessibilityValue={{ min: 0, max: duration, now: position }} accessibilityActions={[{ name: 'increment', label: 'Forward 10 seconds' }, { name: 'decrement', label: 'Back 10 seconds' }]} onAccessibilityAction={e => { player.currentTime = Math.max(0, Math.min(duration, player.currentTime + (e.nativeEvent.actionName === 'increment' ? 10 : -10))) }} onLayout={e => setWidth(e.nativeEvent.layout.width)} onStartShouldSetResponder={() => true} onResponderGrant={e => { setControls(true); setScrub(seek(e.nativeEvent.locationX)) }} onResponderMove={e => setScrub(seek(e.nativeEvent.locationX))} onResponderRelease={e => { player.currentTime = seek(e.nativeEvent.locationX); setScrub(null) }} onResponderTerminate={() => setScrub(null)} style={{ flex: 1, height: 48, justifyContent: 'center' }}>
+          <View style={{ height: 3, backgroundColor: '#ffffff99', borderRadius: 2 }}><View style={{ height: 3, backgroundColor: '#22c55e', width: `${duration ? Math.min(100, position / duration * 100) : 0}%` }} /><View style={{ position: 'absolute', top: -4, marginLeft: -5, left: `${duration ? Math.min(100, position / duration * 100) : 0}%`, width: 11, height: 11, borderRadius: 6, backgroundColor: '#22c55e' }} /></View>
+        </View>
+        <Text style={{ color: 'white', fontSize: 12 }}>{time(duration)}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Playback speed ${rate} times`} onPress={() => { const next = rate === 1 ? 1.5 : rate === 1.5 ? 2 : 1; setRate(next); player.playbackRate = next; setControls(true) }} style={{ minWidth: 44, height: 48, justifyContent: 'center', alignItems: 'center' }}><Text style={{ color: 'white', fontWeight: '600' }}>{rate}x</Text></Pressable>
+      </View>
+    </>}
     {status.status === 'loading' && <ActivityIndicator accessibilityLabel="Loading video" color="#ffffff" style={{ position: 'absolute', alignSelf: 'center' }} />}
     {status.status === 'error' && <Text accessibilityRole="alert" style={{ position: 'absolute', alignSelf: 'center', color: '#ffffff', fontFamily: 'Inter_400Regular', fontSize: 14, textAlign: 'center', padding: 24 }}>Unable to play this video. Check your connection and file access, then reopen it.</Text>}
   </View>
 }
 
+/* eslint-enable react-hooks/immutability */
 /** Resolve authenticated audio only when tapped; keep playback inside the bubble. */
 export function InlineAudio({ attachment }: { attachment: Attachment }) {
  const c = useColors(); const [active, setActive] = useState(false)

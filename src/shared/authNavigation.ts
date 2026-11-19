@@ -15,7 +15,7 @@ export function safeNext(value: unknown): string {
       const decoded = decodeURIComponent(pathname)
       if (decoded === pathname) {
         const root = pathname.split('/')[1]
-        return ['', 'home', 'messenger', 'passwords', 'profile', 'notifications', 'admin', 'share', 'preview'].includes(root) ? parsed.pathname + parsed.search + parsed.hash : '/'
+        return ['', 'home', 'messenger', 'passwords', 'profile', 'notifications', 'admin', 'share', 'preview', 'tickets'].includes(root) ? parsed.pathname + parsed.search + parsed.hash : '/'
       }
       pathname = decoded
     }

@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, FlatList, Platform, Pressable, Text, View, type ViewStyle } from 'react-native'
 import { router } from 'expo-router'
 import { useSession } from '../../core/auth/Session'
 import { ChatComposer } from '../../components/ChatComposer'
+import { atlasTextOnlyActions, ATLAS_TEXT_ONLY_REASON } from './composer'
 import { AtlasIcon } from '../../components/AtlasIcon'
 import { Icon } from '../../components/Icon'
 
-import { Button, EmptyState, Spinner, radius, useColors, type Colors } from '../../ui'
+import { Button, EmptyState, Spinner, useColors, type Colors } from '../../ui'
+import { AtlasMessageOptions, type Selection } from './AtlasMessageOptions'
+import { AtlasAnswer } from './AtlasAnswer'
 import { formatDateTime } from '../../shared/utils/format'
 import { ATLAS_MAX_CHARS, answerView, canSend, counter, quote, type Ask } from './model'
 import { useAtlasStatusEntry, useAtlasThread, useOffline } from './useAtlas'
@@ -33,6 +36,11 @@ function AtlasThreadView({ user, onBack }: { user: string; onBack?: () => void }
   const offline = useOffline()
   const allowed = !!status.value?.enabled && !!status.value.allowed
   const thread = useAtlasThread(user, allowed)
+  const list = useRef<FlatList<Ask>>(null)
+  const sending = useRef(false)
+  const [pending, setPending] = useState<Ask | null>(null)
+  const [failed, setFailed] = useState<{ text: string; parent: Ask | null } | null>(null)
+  const [selected, setSelected] = useState<Selection | null>(null)
   const [draft, setDraft] = useState('')
   const [replyTo, setReplyTo] = useState<Ask | null>(null)
   const byId = useMemo(() => new Map(thread.asks.map(ask => [ask.id, ask])), [thread.asks])
@@ -41,21 +49,32 @@ function AtlasThreadView({ user, onBack }: { user: string; onBack?: () => void }
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => { if (!thread.retryAt) return; const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t) }, [thread.retryAt])
   const wait = thread.retryAt ? Math.max(0, Math.ceil((thread.retryAt - now) / 1000)) : 0
-  const blockedLine = offline ? 'You are offline. Connect to ask Atlas; earlier questions stay visible.' : null
+  const blockedLine = offline ? 'No internet' : null
   const sendDisabled = !allowed || offline || thread.sending || wait > 0 || !canSend(draft)
 
-  const send = async () => {
-    if (sendDisabled) return
-    const text = draft
-    if (await thread.thread.send(text, replyTo?.id ?? null)) { setDraft(current => current === text ? '' : current); setReplyTo(null) }
+  const submit = async (text: string, parent: Ask | null) => {
+    if (sending.current || !allowed || offline || thread.sending || wait > 0 || !canSend(text)) return
+    sending.current = true
+    setFailed(null); setDraft(''); setReplyTo(null)
+    setPending({ id: -1, text, reply_to: parent?.id ?? null, state: 'sending', answer: null, with: null, error_message: null, created_at: new Date().toISOString(), answered_at: null, open: true })
+    list.current?.scrollToOffset({ offset: 0, animated: false })
+    const accepted = await thread.thread.send(text, parent?.id ?? null)
+    setPending(null)
+    sending.current = false
+    if (!accepted) { setFailed({ text, parent }); setDraft(current => current || text) }
   }
+  const send = () => submit(draft, replyTo)
+  const items = pending && thread.sending ? [pending, ...thread.asks] : thread.asks
+  const active = thread.asks.find(ask => ask.open)
+  const activity = offline ? 'No internet' : active?.state === 'working' ? `${active.with || 'Atlas'} is working...` : active?.state === 'with_person' ? `With ${active.with || 'an Atlas agent'}` : active ? 'Waiting for Atlas...' : 'Ready to chat'
+
 
   const header = <View style={{ minHeight: 60, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.shell }}>
     <Pressable accessibilityRole="button" accessibilityLabel="Back to chats" onPress={() => onBack ? onBack() : router.canGoBack() ? router.back() : router.replace('/messenger')} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22, ...pointer }}><Icon name="back" size={22} color={c.text} /></Pressable>
     <View style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: c.dark ? '#18232e' : '#ffffff' }}><AtlasIcon size={36} /></View>
     <View style={{ flex: 1, minWidth: 0 }}>
       <Text accessibilityRole="header" numberOfLines={1} style={{ fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 16, lineHeight: 22, color: c.text }}>Atlas</Text>
-      <Text numberOfLines={1} style={{ fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 16, color: c.muted }}>JIVO business AI. Only you see your questions and answers.</Text>
+      <Text numberOfLines={1} style={{ fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 16, color: c.muted }}>{activity}</Text>
     </View>
   </View>
 
@@ -71,33 +90,37 @@ function AtlasThreadView({ user, onBack }: { user: string; onBack?: () => void }
     {header}
     <View style={{ flex: 1, backgroundColor: chatTint(c) }}>
       {!!thread.error && <Text accessibilityLiveRegion="polite" style={{ paddingHorizontal: 16, paddingVertical: 8, color: c.muted, fontSize: 12, lineHeight: 17, backgroundColor: c.panel, borderBottomWidth: 1, borderBottomColor: c.border }}>{thread.error}</Text>}
-      {thread.asks.length === 0
+      {items.length === 0
         ? (thread.loading && !thread.loaded ? <View style={{ flex: 1, justifyContent: 'center' }}><Spinner label="Loading your questions" /></View>
-          : <View style={{ flex: 1, justifyContent: 'center' }}><EmptyState title="Ask Atlas anything about JIVO business" description="Sales, stock, orders or reports. Atlas answers here, usually within a minute or two; some answers take longer when Atlas checks with a colleague." action={<AtlasIcon size={64} />} /></View>)
-        : <FlatList inverted data={thread.asks} keyExtractor={ask => String(ask.id)} keyboardShouldPersistTaps="handled"
+          : <View style={{ paddingHorizontal: 28, paddingVertical: 48, gap: 8 }}><Text style={{ color: c.text, fontSize: 15, fontWeight: '600', textAlign: 'center' }}>Ask Atlas anything about JIVO&apos;s business</Text><Text style={{ color: c.muted, fontSize: 13, lineHeight: 19, textAlign: 'center' }}>Sales, stock, orders, people... Atlas answers here, and only you can see the answers.</Text></View>)
+        : <FlatList ref={list} inverted data={items} keyExtractor={ask => String(ask.id)} keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8 }}
           ListFooterComponent={older}
           onEndReachedThreshold={0.2} onEndReached={() => { if (thread.hasMore && !thread.loadingOlder && !offline) void thread.thread.loadOlder() }}
           renderItem={({ item }) => <AskRow ask={item} parent={item.reply_to ? byId.get(item.reply_to) ?? null : null} c={c} canAct={allowed && !offline && !thread.sending}
-            onReply={() => setReplyTo(item)} onRetry={() => void thread.thread.retry(item)} />} />}
+            onReply={() => setReplyTo(item)} onOptions={(text, own) => setSelected({ ask: item, text, own })} onRetry={() => void submit(item.text, item.reply_to ? byId.get(item.reply_to) ?? null : null)} />} />}
     </View>
     <View style={{ paddingHorizontal: 10, paddingTop: 8, paddingBottom: 10, gap: 6, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.shell }}>
       {!!blockedLine && <Line icon="wifiOff" text={blockedLine} c={c} />}
       {!!thread.sendError && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <View style={{ flex: 1 }}><Line icon="alert" text={thread.sendError.message} c={c} danger /></View>
-        {thread.sendError.retryable && <Button size="sm" variant="secondary" title={wait > 0 ? `Retry in ${wait} s` : 'Retry'} disabled={sendDisabled || wait > 0} onPress={() => void send()} />}
+        {thread.sendError.retryable && <Button size="sm" variant="secondary" title={wait > 0 ? `Retry in ${wait} s` : 'Retry'} disabled={!failed || offline || thread.sending || wait > 0} onPress={() => { if (failed) void submit(failed.text, failed.parent) }} />}
         <Pressable accessibilityRole="button" accessibilityLabel="Dismiss error" onPress={() => thread.thread.clearSendError()} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', ...pointer }}><Icon name="x" size={16} color={c.muted} /></Pressable>
       </View>}
       {replyTo && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 10, borderLeftWidth: 3, borderLeftColor: c.brand, borderRadius: 6, backgroundColor: c.panel }}>
         <View style={{ flex: 1, paddingVertical: 6 }}>
-          <Text style={{ fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 12, color: c.brand }}>Follow up on</Text>
-          <Text numberOfLines={1} style={{ fontSize: 13, color: c.muted }}>{quote(replyTo.text)}</Text>
+          <Text style={{ fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 12, color: c.brand }}>Replying to Atlas</Text>
+          <Text numberOfLines={1} style={{ fontSize: 13, color: c.muted }}>{quote(replyTo.answer || replyTo.text)}</Text>
         </View>
         <Pressable accessibilityRole="button" accessibilityLabel="Cancel follow-up" onPress={() => setReplyTo(null)} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', ...pointer }}><Icon name="x" size={16} color={c.muted} /></Pressable>
       </View>}
-      <Text accessibilityLiveRegion="polite" accessibilityLabel={`${count.count} of ${ATLAS_MAX_CHARS} characters`} style={{ alignSelf: 'flex-end', fontSize: 11, color: count.over ? c.danger : c.muted }}>{count.over ? `Shorten your message to ${ATLAS_MAX_CHARS} characters. ` : ''}{count.label}</Text>
+
     </View>
+    <AtlasMessageOptions selected={selected} onClose={() => setSelected(null)} onReply={setReplyTo} onDeleted={id => thread.thread.remove(id)} />
     <ChatComposer
+      attach={atlasTextOnlyActions}
+      voiceUnavailableReason={ATLAS_TEXT_ONLY_REASON}
+      footer={<View style={{ paddingHorizontal: 12, paddingBottom: 4, backgroundColor: c.shell }}><Text accessibilityLiveRegion="polite" accessibilityLabel={`${count.count} of ${ATLAS_MAX_CHARS} characters`} style={{ alignSelf: 'flex-end', fontSize: 11, color: count.over ? c.danger : c.muted }}>{count.over ? `Shorten your message to ${ATLAS_MAX_CHARS} characters. ` : ''}{count.label}</Text></View>}
       inputProps={{ value: draft, onChangeText: value => { setDraft(value); if (thread.sendError && !thread.sendError.retryable) thread.thread.clearSendError() }, placeholder: 'Ask Atlas', accessibilityLabel: 'Question for Atlas' }}
       disabled={!allowed} sendDisabled={sendDisabled} sendLabel="Send to Atlas" onSend={() => void send()}
     />
@@ -112,32 +135,25 @@ function Line({ icon, text, c, danger = false }: { icon: 'wifiOff' | 'alert'; te
 }
 
 /** One ask (right) and Atlas's reply or progress line (left). Rendered inside an inverted list, newest at the bottom. */
-export function AskRow({ ask, parent, c, canAct, onReply, onRetry }: { ask: Ask; parent: Ask | null; c: Colors; canAct: boolean; onReply: () => void; onRetry: () => void }) {
+export function AskRow({ ask, parent, c, canAct, onRetry, onOptions }: { ask: Ask; parent: Ask | null; c: Colors; canAct: boolean; onReply: () => void; onRetry: () => void; onOptions?: (text: string, own: boolean) => void }) {
   const view = answerView(ask)
-  const bubble: ViewStyle = { maxWidth: '82%', paddingHorizontal: 10, paddingTop: 6, paddingBottom: 4, borderRadius: radius.card, boxShadow: '0 1px 0.5px rgba(11,20,26,0.13)' }
-  const tone = view.tone === 'failed' || view.tone === 'refused' ? c.danger : view.tone === 'held' ? c.warning : c.brand
-  return <View style={{ gap: 4, paddingVertical: 4 }}>
-    <View style={[bubble, { alignSelf: 'flex-end', backgroundColor: c.outgoing, borderTopRightRadius: 4 }]}>
-      {parent && <View style={{ marginBottom: 4, paddingHorizontal: 8, paddingVertical: 4, borderLeftWidth: 3, borderLeftColor: c.brand, borderRadius: 6, backgroundColor: c.dark ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.05)' }}>
-        <Text numberOfLines={2} style={{ fontSize: 12, lineHeight: 16, color: c.muted }}>{quote(parent.text)}</Text>
-      </View>}
-      {ask.reply_to && !parent && <Text style={{ fontSize: 12, lineHeight: 16, color: c.muted, fontStyle: 'italic' }}>Follow-up to an earlier question</Text>}
-      <Text selectable style={{ fontFamily: 'Inter_400Regular', fontSize: 15, lineHeight: 21, color: c.text }}>{ask.text}</Text>
-      <Text accessibilityLabel={`Asked ${formatDateTime(ask.created_at)}`} style={{ alignSelf: 'flex-end', fontSize: 11, lineHeight: 14, color: c.muted }}>{time(ask.created_at)}</Text>
-    </View>
-    <View style={[bubble, { alignSelf: 'flex-start', backgroundColor: c.incoming, borderTopLeftRadius: 4 }]}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        <Text style={{ fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 12, lineHeight: 16, color: c.brand }}>Atlas</Text>
-        {view.note && <Text style={{ fontSize: 11, lineHeight: 16, color: tone }}>{view.note}</Text>}
-      </View>
-      {view.tone === 'pending'
-        ? <View accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 2 }}><ActivityIndicator size="small" color={c.brand} /><Text style={{ flexShrink: 1, fontSize: 14, lineHeight: 20, color: c.muted, fontStyle: 'italic' }}>{view.text}</Text></View>
-        : <Text selectable style={{ fontFamily: 'Inter_400Regular', fontSize: 15, lineHeight: 21, color: view.tone === 'answer' ? c.text : view.tone === 'failed' ? c.danger : c.muted }}>{view.text}</Text>}
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 2 }}>
-        {view.retry && <Pressable accessibilityRole="button" accessibilityLabel="Ask again" disabled={!canAct} onPress={onRetry} style={{ minHeight: 32, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 4, opacity: canAct ? 1 : 0.5, ...pointer }}><Icon name="rotateCw" size={14} color={c.brand} /><Text style={{ fontSize: 13, color: c.brand }}>Retry</Text></Pressable>}
-        {view.tone !== 'pending' && <Pressable accessibilityRole="button" accessibilityLabel="Follow up on this answer" disabled={!canAct} onPress={onReply} style={{ minHeight: 32, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 4, opacity: canAct ? 1 : 0.5, ...pointer }}><Icon name="reply" size={14} color={c.brand} /><Text style={{ fontSize: 13, color: c.brand }}>Follow up</Text></Pressable>}
-        <Text style={{ fontSize: 11, lineHeight: 14, color: c.muted }}>{time(ask.answered_at)}</Text>
-      </View>
-    </View>
+  const [lines, setLines] = useState(10)
+  const [long, setLong] = useState(false)
+  const answered = ask.state === 'done' && !!ask.answer?.trim()
+  const answer = ask.answer?.trim() || (view.tone !== 'pending' ? view.text : '')
+  return <View style={{ gap: 10, paddingVertical: 8 }}>
+    <Pressable onLongPress={() => ask.id > 0 && onOptions?.(ask.text, true)} delayLongPress={500} style={{ maxWidth: '85%', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, borderTopRightRadius: 4, alignSelf: 'flex-end', backgroundColor: c.outgoing }}>
+      {parent && <View style={{ marginBottom: 6, padding: 8, borderLeftWidth: 3, borderLeftColor: c.brand, backgroundColor: c.hover }}><Text numberOfLines={2} style={{ color: c.muted, fontSize: 12 }}>{quote(parent.answer || parent.text)}</Text></View>}
+      <Text numberOfLines={lines} onTextLayout={e => { if (e.nativeEvent.lines.length >= lines) setLong(true) }} style={{ fontSize: 15, lineHeight: 22, color: c.text }}>{ask.text}</Text>
+      {long && <Pressable onPress={() => { setLines(n => n + 10); setLong(false) }}><Text style={{ color: c.brand, paddingVertical: 4 }}>Read more</Text></Pressable>}
+      <View style={{ flexDirection: 'row', gap: 4, justifyContent: 'flex-end', alignItems: 'center', marginTop: 4 }}><Text accessibilityLabel={`Asked ${formatDateTime(ask.created_at)}`} style={{ fontSize: 11, color: c.muted }}>{time(ask.created_at)}</Text><View accessibilityLabel={answered ? 'Answered by Atlas' : ask.state === 'sending' ? 'Sending' : 'Delivered to Atlas; read receipt unavailable'}><Icon name={(ask.delivered ?? ask.state !== 'sending') ? 'checks' : 'clock'} size={15} color={answered ? '#38bdf8' : c.muted} /></View></View>
+    </Pressable>
+    {ask.open && <View accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8 }}><ActivityIndicator size="small" color={c.brand} /><Text style={{ color: c.muted, fontSize: 13 }}>{ask.state === 'sending' ? 'Sending...' : ask.state === 'queued' ? 'Received' : ask.state === 'with_person' ? `With ${ask.with || 'an Atlas agent'}` : 'Processing...'}</Text></View>}
+    {!!answer && <Pressable onLongPress={() => onOptions?.(answer, false)} delayLongPress={500} accessibilityHint="Long press for message options" style={{ alignSelf: 'stretch', padding: 14, borderRadius: 16, borderTopLeftRadius: 4, backgroundColor: c.incoming }}>
+      <Text style={{ color: c.brand, fontSize: 12, fontWeight: '600', marginBottom: 6 }}>{ask.with || 'Atlas'}{view.note ? ` - ${view.note}` : ''}</Text>
+      <AtlasAnswer text={answer} />
+      <Text style={{ alignSelf: 'flex-end', fontSize: 11, color: c.muted, marginTop: 6 }}>{time(ask.answered_at)}</Text>
+    </Pressable>}
+    {view.retry && <Button variant="secondary" size="sm" title="Retry" disabled={!canAct} onPress={onRetry} />}
   </View>
 }

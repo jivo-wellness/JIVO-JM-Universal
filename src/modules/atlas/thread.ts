@@ -45,6 +45,7 @@ export class AtlasThread {
   private active = false
   private disposed = false
   private sendBusy = false
+  private removed = new Set<number>()
 
   constructor(private api: ThreadApi, private clock: Clock = realClock, cached?: ThreadCache | null, private persist?: (value: ThreadCache) => void) {
     this.state = { asks: cached?.asks ?? [], hasMore: cached?.hasMore ?? false, loaded: false, loading: false, loadingOlder: false, error: null, sending: false, sendError: null, retryAt: null }
@@ -55,6 +56,7 @@ export class AtlasThread {
 
   private set(patch: Partial<ThreadSnapshot>) {
     if (this.disposed) return
+    if (patch.asks) patch.asks = patch.asks.filter(ask => !this.removed.has(ask.id))
     this.state = { ...this.state, ...patch }
     if (patch.asks || patch.hasMore !== undefined) this.persist?.({ asks: this.state.asks.slice(0, CACHE_LIMIT), hasMore: this.state.hasMore || this.state.asks.length > CACHE_LIMIT })
     this.listeners.forEach(listener => listener())
@@ -117,6 +119,13 @@ export class AtlasThread {
   /** Ask a failed question again as a new ask (same text and follow-up). */
   retry(ask: Ask) { return this.send(ask.text, ask.reply_to) }
   clearSendError() { if (this.state.sendError) this.set({ sendError: null, retryAt: null }) }
+
+  remove(id: number) {
+    this.removed.add(id)
+    const timer = this.timers.get(id); if (timer) this.clock.clear(timer)
+    this.timers.delete(id)
+    this.set({ asks: this.state.asks.filter(ask => ask.id !== id) })
+  }
 
   dispose() { this.disposed = true; this.stopTimers(); this.listeners.clear() }
 

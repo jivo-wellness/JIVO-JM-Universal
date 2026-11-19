@@ -11,6 +11,7 @@ import { errorMessage, origin } from '../core/api/client'
 import { useCursor } from '../shared/useCursor'
 import { Button, Card, Field, Label, glass, useColors } from '../ui'
 import { Sheet } from './Sheet'
+import { AttachPage, ListRow, RoundIcon } from './attach/AttachPage'
 import { ImageViewer } from './ImageViewer'
 import { mediaUrl } from '../modules/messenger/media/url'
 export function SearchMessages({ conversation, onJump, onClose }: { conversation: string; onJump: (seq: number) => void; onClose: () => void }) {
@@ -21,14 +22,34 @@ export function SearchMessages({ conversation, onJump, onClose }: { conversation
     {page.loading && <ActivityIndicator />}{!!page.error && <Text accessibilityRole="alert" style={{ color: c.text }}>{page.error}</Text>}{Boolean(submitted) && !page.loading && !page.items.length && <Label>No matching messages.</Label>}{page.cursor && <Button title="More matching messages" disabled={page.loading} onPress={() => void page.more()} />}<Button title="Close search" onPress={onClose} />
   </Sheet>
 }
-export function ForwardMessage({ message, onClose }: { message: chat.Message; onClose: () => void }) {
-  const c = useColors(); const [query, setQuery] = useState(''); const [targets, setTargets] = useState<string[]>([]); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const id = useRef(randomUUID())
+export function ForwardMessage({ messages, onClose }: { messages: chat.Message[]; onClose: () => void }) {
+  const c = useColors(); const [query, setQuery] = useState(''); const [targets, setTargets] = useState<string[]>([]); const [busy, setBusy] = useState(false); const [error, setError] = useState('')
+  const sending = useRef(false); const keys = useRef(new Map<string, string>()); const completed = useRef(new Set<string>())
   const load = useCallback((cursor?: string | null) => chat.listConversations('all', query, cursor), [query]); const page = useCursor(load)
-  return <Sheet visible onClose={() => { if (!busy) onClose() }}><Label large>Forward message</Label><Label>{message.body}</Label><Field label="Find destination conversation" value={query} onChangeText={setQuery} />
-    {page.items.map(item => <Button key={item.id} title={`${targets.includes(item.id) ? 'Selected: ' : ''}${item.title || item.peer?.name || 'Conversation'}`} disabled={busy || !item.can.send} onPress={() => { setTargets(ids => ids.includes(item.id) ? ids.filter(i => i !== item.id) : [...ids, item.id]); id.current = randomUUID() }} />)}
-    {page.cursor && <Button title="More destinations" disabled={page.loading} onPress={() => void page.more()} />}{!!(error || page.error) && <Text accessibilityRole="alert" style={{ color: c.text }}>{error || page.error}</Text>}
-    <Button title={`Forward to ${targets.length} conversations`} disabled={busy || !targets.length} onPress={() => { setBusy(true); void chat.forwardMessage(message.id, targets, id.current).then(onClose).catch(e => setError(errorMessage(e))).finally(() => setBusy(false)) }} /><Button title="Cancel forward" disabled={busy} onPress={onClose} />
-  </Sheet>
+  const send = async () => {
+    if (sending.current || !targets.length) return
+    sending.current = true
+    setBusy(true); setError('')
+    try {
+      for (const message of messages) for (const target of targets) {
+        const pair = message.id + ':' + target
+        if (completed.current.has(pair)) continue
+        let key = keys.current.get(pair); if (!key) { key = randomUUID(); keys.current.set(pair, key) }
+        await chat.forwardMessage(message.id, [target], key); completed.current.add(pair)
+      }
+      onClose()
+    } catch (e) { setError(errorMessage(e)) } finally { sending.current = false; setBusy(false) }
+  }
+  return <AttachPage title="Forward to" onBack={onClose} backDisabled={busy} search={{ value: query, onChangeText: setQuery, placeholder: 'Search chats', label: 'Find destination conversation' }}
+    footer={<View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><Text style={{ flex: 1, color: c.muted }}>{messages.length} message{messages.length === 1 ? '' : 's'} ? {targets.length} selected</Text><Button title="Forward" loading={busy} disabled={busy || !targets.length} onPress={() => void send()} /></View>}>
+    {page.items.map(item => <ListRow key={item.id} title={item.title || item.peer?.name || 'Conversation'} selected={targets.includes(item.id)} disabled={busy || !item.can.send}
+      leading={<RoundIcon icon={item.kind === 'group' ? 'users' : 'user'} color={c.brand} background={c.successSoft} size={48} />}
+      trailing={<Icon name={targets.includes(item.id) ? 'check' : 'circle'} size={22} color={targets.includes(item.id) ? c.brand : c.muted} />}
+      onPress={() => setTargets(ids => ids.includes(item.id) ? ids.filter(id => id !== item.id) : [...ids, item.id])} />)}
+    {page.loading && <ActivityIndicator color={c.brand} style={{ margin: 16 }} />}
+    {page.cursor && <Button title="More chats" variant="ghost" disabled={page.loading} onPress={() => void page.more()} />}
+    {!!(error || page.error) && <Text accessibilityRole="alert" style={{ color: c.danger, padding: 16 }}>{error || page.error}</Text>}
+  </AttachPage>
 }
 export function CreatePoll({ conversation, onSent, onClose }: { conversation: string; onSent: (message: chat.Message) => void; onClose: () => void }) {
   const c = useColors(); const [question, setQuestion] = useState(''); const [options, setOptions] = useState(''); const [multiple, setMultiple] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const id = useRef(randomUUID())
@@ -67,7 +88,8 @@ type Hover = { hovered?: boolean; pressed: boolean }
  * picker), a quoted preview, then Reply, Copy, Forward, Edit, Info and Delete rows. Accessibility labels keep the
  * existing test hooks ("Message information", "Edit message", "Forward message", "Close actions", ...).
  */
-export function MessageActionSheet({ message: m, own = true, busy = false, canReply = true, editDisabled = false, onClose, onReact, onUnreact, onReply, onForward, onEdit, onInfo, onExport, onDelete, onStar }: {
+export function MessageActionSheet({ message: m, own = true, busy = false, canReply = true, editDisabled = false, onClose, onReact, onUnreact, onReply, onForward, onEdit, onInfo, onExport, onDelete, onStar, onSelect }: {
+  onSelect?: () => void
   message: chat.Message | null
   busy?: boolean
   canReply?: boolean
@@ -105,7 +127,7 @@ export function MessageActionSheet({ message: m, own = true, busy = false, canRe
       <Pressable accessibilityLabel="Close actions" accessibilityRole="button" onPress={close} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, ...(web ? { cursor: 'default' } : {}) } as object} />
       {!web && <View style={{ width: '100%', height: 64, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, backgroundColor: c.panel, borderBottomWidth: 1, borderColor: c.border }}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close selection" onPress={close} style={{ padding: 12 }}><Icon name="back" size={24} color={c.text} /></Pressable>
-        <Text style={{ flex: 1, color: c.text, fontSize: 20 }}>1</Text>
+        <Pressable onPress={onSelect} accessibilityLabel="Select more messages" style={{ flex: 1, paddingVertical: 12 }}><Text style={{ color: c.text, fontSize: 16 }}>Select more</Text></Pressable>
         {([{ icon: 'reply', label: 'Reply', show: m.can.reply && canReply, action: onReply }, { icon: 'info', label: 'Message information', show: own, action: onInfo }, { icon: 'trash2', label: 'Delete message', show: true, action: () => { setMore(true); setConfirm('me') } }, { icon: 'copy', label: 'Copy', show: !m.deleted && !!m.body, action: () => { void setStringAsync(m.body); close() } }, { icon: 'forward', label: 'Forward message', show: m.can.forward, action: onForward }] as { icon: IconName; label: string; show: boolean; action: () => void }[]).filter(item => item.show).map(item => <Pressable key={item.label} accessibilityRole="button" accessibilityLabel={item.label} disabled={busy} onPress={item.action} style={{ padding: 10 }}><Icon name={item.icon} size={22} color={c.text} /></Pressable>)}
         <Pressable accessibilityRole="button" accessibilityLabel="More message options" onPress={() => setMore(v => !v)} style={{ padding: 10 }}><Icon name="moreVertical" size={22} color={c.text} /></Pressable>
       </View>}

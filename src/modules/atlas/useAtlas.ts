@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { onSessionLost } from '../../core/api/client'
 import { useSession } from '../../core/auth/Session'
 import { subscribeLifecycle } from '../../core/realtime/lifecycle'
-import { realtime } from '../../core/realtime/socket'
+import { useDeviceOffline } from '../../shared/useDeviceOffline'
 import { atlasApi, atlasStatus } from './api'
 import { AtlasStore, type StatusEntry } from './store'
 import { AtlasThread } from './thread'
@@ -29,9 +29,9 @@ export function useAtlasStatusEntry() {
 /** `{ enabled, allowed, message }` or null while unknown: the Messenger button shows only when `enabled`. */
 export const useAtlasStatus = () => useAtlasStatusEntry().value
 
-/** True while the app is backgrounded or the device is disconnected (the shared realtime status). */
+/** True only when device connectivity reports no internet, independent of the live-chat socket. */
 export function useOffline() {
-  return useSyncExternalStore(realtime.subscribe, realtime.snapshot, realtime.snapshot) === 'offline'
+  return useDeviceOffline()
 }
 
 /**

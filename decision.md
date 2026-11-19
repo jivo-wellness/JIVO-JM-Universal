@@ -226,3 +226,22 @@ Retry states compared with the web at 412x915, light and dark (web Vite dev serv
 - iOS: the plugin's share extension is enabled (`com.jivo.jm.ShareExtension`, App Group `group.com.jivo.jm`, text, 1 URL, up to 10 images/movies/files). Needs the App Group registered on both App IDs/profiles (EAS does it); not built (no iOS build here). Android prebuild unaffected.
 - PWA: manifest `share_target` (POST multipart `/share-target`, `title`/`text`/`url`/`files`: image/*, video/*, audio/*, text/*, PDF and office types). The worker (`pwa/incoming-share.ts` + `shareTarget.ts` inlined into `share-worker.js` by `build-web.cts`, in one function scope) buffers at most 100 MB, keeps 10 files, stores in IndexedDB `jm-incoming-share-v1` (never Cache Storage), redirects 303 to `/share` (or `?shareError=limit|empty|retry`); newest share replaces; sign-out bumps the boundary and clears. Preview server and nginx example answer a POST that bypassed the worker with 303 to `/share?shareError=retry`; `/share` was already an SPA route in all three.
 - Checked: `tsc --noEmit` (+ pwa/tools configs), `npm run lint`, full `vitest` (107 files, 737 tests; new `shareTarget.test.ts`, rewritten `sharing.test.ts`, `storage.native.test.ts`), `npm run build:web`, `npm run test:pwa`, `npm run test:tools`, arm64 debug APK (JIVO key). `scripts/share-ui.cjs` (mocked web harness) rewritten for the new flow but not run. Not checked on a phone (production account; no taps): share from Gallery (1 and several photos), a video, a PDF/Word file from Files, a link from Chrome, text from Notes, cold start and while open, signed out, with app lock on, an APK/unknown file (refused), 11 photos, a text-only chat (dimmed), cache clean-up after Send/Cancel.
+
+
+## U-037: Bug tickets in Universal (2026-11-19)
+
+Use the JM ticket API (BE-111/FE-056) for native and PWA tickets. Home, the rail and account menu expose tickets to JM_ACCESS users; notifications and post-login destinations open the detail route. Server action flags control resolver/assignee/reporter actions. Reports and replies reuse scan-aware uploads with purpose=ticket. Authenticated exports use the existing confirmation and native/browser export pipeline. No new dependencies or offline persistence. Account changes, navigation and backgrounding cancel in-flight mutations/exports. See docs/bug-tickets.md.
+
+
+## U-038: Persistent app shell and content-only navigation (2026-11-19)
+
+Move ordinary signed-in routes into the URL-transparent `(workspace)` route group. Its layout owns one WorkspaceShell and a Slot outlet. Existing page Workspace wrappers contribute content and focused header actions instead of constructing another shell. Public sign-in/invite/reset/preview and dedicated full-screen conversation-info routes retain their existing presentation. Header, footer and rail remain mounted during workspace navigation; the title, active item, badges and profile actions still update normally. Immersive phone chat hides the existing header/footer instead of destroying them. Account/session gates remain in WorkspaceShell and the existing keyed AppLock boundary.
+
+Animate only the route outlet for 160ms (subtle opacity and 4px movement), including page-section changes; skip initial mount, in-chat message jumps and reduced-motion preferences. Do not retain snapshots or delay routing to animate private content. Transient menu/tooltip state resets on route changes; rail position and other shell state persist. URL paths, deep links and backend APIs remain unchanged. The PWA route inventory test understands URL-transparent route groups.
+
+
+## U-039: Atlas entry points and chat composer (2026-11-19)
+
+Use the server's direct-conversation `is_atlas` flag to route the Atlas account into the same private Atlas screen as the floating button and `/atlas` alias. Never infer this identity from a display name or email. Existing ordinary chats keep their routing.
+
+Atlas uses the shared ChatComposer and attachment menu. The current API is text only: show disabled file, photo/video, camera, location, contact, poll, event and voice controls, with a visible explanation in the menu and accessibility hints. No picker, recording or upload callbacks are enabled. Text and emoji continue through the existing Atlas ask API. This follows the user's explicit choice to display unsupported controls as unavailable.

@@ -5,6 +5,7 @@ import { pendingForConversation, type PendingSend } from '../modules/messenger/o
 import { queuedMedia, type QueuedMedia } from '../modules/messenger/queuedMedia'
 import { outbox } from '../modules/messenger/outbox'
 import { useColors } from '../ui'
+import { VideoThumbnail } from './attach/VideoThumbnail'
 import { Icon } from './Icon'
 import { MessageTicks } from './MessagePresentation'
 import { clockTime } from '../modules/messenger/lib/text'
@@ -21,7 +22,7 @@ function SavedImage({ entry, media, box }: { entry: PendingSend; media: QueuedMe
   void queuedMedia.open(entry.owner, entry.payload.client_id, media).then(file => { dispose = file.dispose; if (active) setUri(file.uri); else void dispose?.() }).catch(() => {})
   return () => { active = false; void dispose?.() }
  }, [entry.owner, entry.payload.client_id, media.key, media])
- return uri ? <Image source={{ uri }} accessibilityLabel={media.name} style={{ ...box, borderRadius: 10 }} resizeMode="cover" /> : <View style={{ ...box, alignItems: 'center', justifyContent: 'center' }}><Icon name="image" /></View>
+ return uri && media.mime.startsWith('video/') ? <VideoThumbnail uri={uri} label={media.name} width={box.width} height={box.height} /> : uri ? <Image source={{ uri }} accessibilityLabel={media.name} style={{ ...box, borderRadius: 10 }} resizeMode="cover" /> : <View style={{ ...box, alignItems: 'center', justifyContent: 'center' }}><Icon name="image" /></View>
 }
 export function PendingMessages({ conversation, messages, entries }: { conversation: string; messages: Message[]; entries: PendingSend[] }) {
  const c = useColors()
@@ -38,7 +39,7 @@ export function PendingMessages({ conversation, messages, entries }: { conversat
  }, [hasYoung, now])
  const waiting = (p: PendingSend) => p.status === 'queued' && ((p.attempts ?? 0) > 0 || (!outbox.snapshot().active && now - p.created >= WAIT_NOTICE_MS))
  return <View style={{ gap: 4, paddingHorizontal: 12 }}>{visible.map(p => <View key={p.payload.client_id} style={{ alignSelf: 'flex-end', maxWidth: '85%', backgroundColor: c.outgoing, borderRadius: 16, borderBottomRightRadius: 4, padding: 8, gap: 4 }}>
-  {!!p.media?.length && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>{p.media.map(m => m.mime.startsWith('image/') ? <SavedImage key={m.key} entry={p} media={m} box={chatImageLayout(width, p.media!.filter(item => item.mime.startsWith('image/')).length).box} /> : <View key={m.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8 }}><Icon name="fileText" /><Text numberOfLines={2} style={{ color: c.text, flexShrink: 1 }}>{m.name}</Text></View>)}</View>}
+  {!!p.media?.length && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>{p.media.map(m => (m.mime.startsWith('image/') || m.mime.startsWith('video/')) ? <SavedImage key={m.key} entry={p} media={m} box={chatImageLayout(width, p.media!.filter(item => item.mime.startsWith('image/')).length).box} /> : <View key={m.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8 }}><Icon name="fileText" /><Text numberOfLines={2} style={{ color: c.text, flexShrink: 1 }}>{m.name}</Text></View>)}</View>}
   {p.attachments?.map(a => <View key={a.id} style={{ gap: 4 }}>{a.thumb_url ? <Image source={{ uri: mediaUrl(a.thumb_url, origin) ?? undefined }} style={{ ...chatImageLayout(width, p.attachments!.filter(item => item.kind === 'image').length).box, borderRadius: 10 }} /> : <Text style={{ color: c.text }}>{a.name}</Text>}</View>)}
   {!!p.payload.body && <Text style={{ color: c.text, fontSize: 15, lineHeight: 22 }}>{p.payload.body}</Text>}
   {!p.payload.body && !p.media?.length && !p.attachments?.length && <View style={{ padding: 8 }}><Icon name="paperclip" /></View>}

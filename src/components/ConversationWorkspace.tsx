@@ -1,3 +1,6 @@
+import { useListPresence } from '../modules/messenger/useListPresence'
+import { isAtlasConversation } from '../modules/atlas/routing'
+import { useChatGallery } from '../modules/messenger/useChatGallery'
 import { keyboardMedia } from '../modules/messenger/media/keyboardMedia'
 import { messageAlbums } from '../modules/messenger/messageAlbums'
 import { isSelfChat } from '../modules/messenger/lib/selfChat'
@@ -126,7 +129,7 @@ function UnreadSeparator() {
 }
 
 /** Reference ConversationList Row: px-3 py-2.5, 48px avatar, 16px title, 12px time, 14px preview, 20px badges. */
-function ConversationRow({ item, selected, disabled, typing, onPress, onMenu }: { item: chat.ConversationItem; selected: boolean; disabled: boolean; typing: boolean; onPress: () => void; onMenu: () => void }) {
+function ConversationRow({ item, selected, disabled, typing, online, onPress, onMenu }: { online: boolean; item: chat.ConversationItem; selected: boolean; disabled: boolean; typing: boolean; onPress: () => void; onMenu: () => void }) {
   const { me } = useSession()
   const c = useColors(); const unread = item.unread_count > 0; const muted = !isSelfChat(item, me?.id) && isMuted(item.muted_until)
   const title = item.title || item.peer?.name || 'Conversation'
@@ -134,7 +137,10 @@ function ConversationRow({ item, selected, disabled, typing, onPress, onMenu }: 
   const lastSender = item.kind === 'group' && last?.sender ? `${last.sender.name.split(' ')[0]}: ` : ''
   const media = last?.media ? previewIcons[last.media] : null
   return <Pressable accessibilityRole="button" accessibilityLabel={`Open ${title}`} disabled={disabled} onPress={onPress} onLongPress={onMenu} delayLongPress={450} {...(Platform.OS === 'web' ? { onContextMenu: (e: { preventDefault: () => void }) => { e.preventDefault(); onMenu() }, onKeyDown: (e: { key: string; shiftKey: boolean; preventDefault: () => void }) => { if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); onMenu() } } } as object : {})} style={state => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 12, backgroundColor: selected ? c.successSoft : state.pressed || isHovered(state) ? rowHover(c.dark) : 'transparent', ...listPointer })}>
-    <ChatAvatar name={item.kind === 'direct' ? item.peer?.name || title : title} seed={item.peer?.id ?? item.id} uri={mediaUrl(item.avatar_url, origin)} group={item.kind === 'group'} />
+    <View style={{ position: 'relative', flexShrink: 0 }}>
+      <ChatAvatar name={item.kind === 'direct' ? item.peer?.name || title : title} seed={item.peer?.id ?? item.id} uri={mediaUrl(item.avatar_url, origin)} group={item.kind === 'group'} />
+      {online && <View accessible accessibilityLabel="online" pointerEvents="none" style={{ position: 'absolute', top: 0, right: 0, width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: c.shell, backgroundColor: c.brandFill }} />}
+    </View>
     <View style={{ flex: 1, minWidth: 0 }}>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
         <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, fontFamily: unread ? 'Inter_600SemiBold' : 'Inter_500Medium', fontWeight: unread ? '600' : '500', color: c.text, fontSize: 16, lineHeight: 24 }}>{title}</Text>
@@ -162,8 +168,8 @@ const OPEN_PAGE = 50
 export function Messenger({ preview = false, initialConversation, initialSeq, initialAtlas = false }: { initialAtlas?: boolean; preview?: boolean; initialConversation?: chat.ConversationItem; initialSeq?: number }) {
   const appearance = useChatAppearance().value; const backgroundImage = appearance?.type === 'image' ? mediaUrl(appearance.image_url, origin) : null
   const c = useColors(); const { width, height } = useWindowDimensions(); const compact = height < 600 || width < 768; const { me } = useSession()
-  const [atlasOpen, setAtlasOpen] = useState(initialAtlas)
-  const [selection, setSelected] = useState<chat.ConversationItem | null>(initialConversation ?? null)
+  const [atlasOpen, setAtlasOpen] = useState(initialAtlas || isAtlasConversation(initialConversation))
+  const [selection, setSelected] = useState<chat.ConversationItem | null>(isAtlasConversation(initialConversation) ? null : initialConversation ?? null)
   // Reference MessageList "Unread messages" separator: remembered from the row that was opened, before reading clears it.
   const [unreadMark, setUnreadMark] = useState<{ id: string; seq: number; count: number } | null>(() => initialConversation && initialConversation.unread_count > 0 ? { id: initialConversation.id, seq: initialConversation.last_read_seq, count: initialConversation.unread_count } : null)
   const summary = useLiveUpdates().summary as { unread_conversations?: number; unread_groups?: number; unread_archived?: number }
@@ -186,7 +192,7 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
   const [menu, setMenuMode] = useState<'options' | 'tools' | null>(null); const setMenu = (open: boolean) => setMenuMode(open ? 'tools' : null); const [choice, setChoice] = useState<'clear' | null>(null)
   // Personal "Block contact" (BE-108) in direct chats; not the administrator "Block messaging".
   const [blocking, setBlocking] = useState<BlockTarget | null>(null)
-  const [tool, setTool] = useState<'search' | 'poll' | 'contact' | 'details' | 'event' | 'location' | null>(null); const [forwarding, setForwarding] = useState<chat.Message | null>(null); const [image, setImage] = useState<{ conversation: string; message: string; attachment: string } | null>(null)
+  const [tool, setTool] = useState<'search' | 'poll' | 'contact' | 'details' | 'event' | 'location' | null>(null); const [forwarding, setForwarding] = useState<chat.Message[] | null>(null); const [image, setImage] = useState<{ conversation: string; message: string; attachment: string } | null>(null)
   const [cameraRequest, setCameraRequest] = useState<{ limit: number; resolve: (files: PickedFile[]) => void } | null>(null)
   useEffect(() => () => { cameraRequest?.resolve([]) }, [cameraRequest])
   const finishCamera = useCallback((files: PickedFile[]) => { cameraRequest?.resolve(files); setCameraRequest(null) }, [cameraRequest])
@@ -212,19 +218,26 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
   const messages = historyMatchesSelection ? historyState.window.messages : emptyMessages
   const displayMessages = useMemo(() => messageAlbums(messages, historyState.targetSeq), [messages, historyState.targetSeq])
   const attachmentOwner = (id: string, fallback: string) => messages.find(message => message.attachments.some(a => a.id === id))?.id ?? fallback
-  const originalMessage = (m: chat.Message) => messages.find(message => message.id === m.id) ?? m
+  const [selectionIds, setSelectionIds] = useState<string[] | null>(null)
+  const albumMessages = (m: chat.Message) => messages.filter(item => item.id === m.id || item.attachments.some(a => m.attachments.some(b => a.id === b.id))).filter(item => !item.deleted && item.can.forward)
+  const toggleSelection = (m: chat.Message) => { const ids = albumMessages(m).map(item => item.id); setSelectionIds(old => ids.every(id => old?.includes(id)) ? (old ?? []).filter(id => !ids.includes(id)) : [...new Set([...(old ?? []), ...ids])]) }
   const firstUnreadSeq = unreadMark && unreadMark.id === selection?.id ? messages.find(m => m.seq > unreadMark.seq && m.kind !== 'system' && m.sender?.id !== me?.id)?.seq ?? null : null
   const currentAttachment = (source: typeof media) => source && source.conversation === selection?.id && !historyState.accessLost ? messages.find(m => m.id === source.message && !m.deleted)?.attachments?.find(a => a.id === source.attachment && a.status === 'ready') : undefined
-  const exportAttachment=currentAttachment(exporting);
-  const mediaAttachment = currentAttachment(media); const imageAttachment = currentAttachment(image)
-  // Reference ChatView gallery: every photo (and here every video) of the loaded chat, oldest first, so the viewer goes left and right.
-  const gallery = useMemo(() => messages.filter(message => !message.deleted).flatMap(message => message.attachments.filter(attachment => (attachment.kind === 'image' || attachment.kind === 'video') && attachment.status === 'ready').map(attachment => ({ attachment, message: message.id, sender: message.sender?.id === me?.id ? 'You' : message.sender?.name || 'JM', createdAt: message.created_at }))), [messages, me?.id])
+  const [deletedViewerMessages, setDeletedViewerMessages] = useState<string[]>([])
+  const gallery = useChatGallery(selected?.id ?? null, !!image, messages, me?.id).filter(item => !deletedViewerMessages.includes(item.message))
+  const exportAttachment = currentAttachment(exporting) ?? gallery.find(item => item.attachment.id === exporting?.attachment)?.attachment
+  const mediaAttachment = currentAttachment(media)
+  const imageAttachment = gallery.find(item => item.attachment.id === image?.attachment)?.attachment
   const imageIndex = gallery.findIndex(item => item.attachment.id === image?.attachment)
   useEffect(() => history.subscribe(() => {
     const state = history.snapshot()
     const retain = (source: typeof media) => source && source.conversation === state.id && !state.accessLost && state.window.messages.some(m => m.id === source.message && !m.deleted && m.attachments?.some(a => a.id === source.attachment && a.status === 'ready')) ? source : null
-    setMedia(retain); setImage(retain)
-    if (state.accessLost || state.locked) { if (state.id && me) conversationDrafts.write(me.id, state.id, ''); setAttachments([]); setTool(null); setActions(null); setForwarding(null); setReply(null); setEditing(null); setBody(''); setPerson(null); setVotes(null); setInfo(null); setExporting(null); setMenu(false) }
+    setMedia(retain); setImage(source => {
+      if (!source || source.conversation !== state.id || state.accessLost || state.locked) return null
+      const known = state.window.messages.find(m => m.id === source.message)
+      return known && (known.deleted || !known.attachments.some(a => a.id === source.attachment && a.status === 'ready')) ? null : source
+    })
+    if (state.accessLost || state.locked) { if (state.id && me) conversationDrafts.write(me.id, state.id, ''); setAttachments([]); setTool(null); setActions(null); setForwarding(null); setSelectionIds(null); setReply(null); setEditing(null); setBody(''); setPerson(null); setVotes(null); setInfo(null); setExporting(null); setMenu(false) }
   }), [history, me])
   // Synchronous when the start-up cache is already read (U-031): the list's first frame is the cached rows.
   const cachedConversations = useCallback((): chat.ConversationItem[] | Promise<chat.ConversationItem[]> => {
@@ -270,6 +283,7 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
   // Reference IntersectionObserver sentinel (rootMargin 400px): the next page loads as the list nears its end.
   const listBox = useRef({ height: 0, content: 0, offset: 0 })
   const visibleRows = useMemo(() => items.filter(item => !item.locked || lockState.unlocked), [items, lockState.unlocked])
+  const listPresence = useListPresence(preview ? [] : visibleRows.filter(item => item.kind === 'direct' && !isSelfChat(item, me?.id) && !item.is_atlas && item.peer).map(item => item.peer!.id), me?.id ?? '')
   const nearEnd = useCallback(() => { const b = listBox.current; if (cursor && !loading && b.height && b.content - b.height - b.offset < 400) void conversations.more() }, [cursor, loading, conversations])
   useEffect(() => { nearEnd() }, [nearEnd, items.length])
   useEffect(()=>onOutboxSent(message=>{history.event({type:'MESSAGE_CREATED',data:message});void refreshConversations()}),[history,refreshConversations])
@@ -338,7 +352,7 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
   // so the person never sees it paint at the top and jump. `shownFor` is the chat whose history has been placed.
   const [shownFor, setShownFor] = useState<string | null>(null)
   const [openedId, setOpenedId] = useState(selectedId)
-  if (openedId !== selectedId) { setOpenedId(selectedId); setShownFor(null); setImage(null); setMedia(null); setExporting(null) }
+  if (openedId !== selectedId) { setOpenedId(selectedId); setShownFor(null); setImage(null); setSelectionIds(null); setMedia(null); setExporting(null) }
   const placing = !!selectedId && shownFor !== selectedId && messages.length > 0 && historyMatchesSelection
   const reveal = useCallback(() => { const id = selectedId ?? null; requestAnimationFrame(() => setShownFor(id)) }, [selectedId])
   // Safety net: show it anyway if no layout pass arrives (an empty or failed window, a list that never measures).
@@ -363,14 +377,15 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
   }, [selectedId, readPosition, preview, visible])
   function openAtlas() {
     if (sending) return
-    selectionGeneration.current++; setSelected(null); setImage(null); setMedia(null); setTool(null); setMenuMode(null); setAtlasOpen(true)
+    selectionGeneration.current++; setSelected(null); setImage(null); setSelectionIds(null); setMedia(null); setTool(null); setMenuMode(null); setAtlasOpen(true)
   }
   function choose(item: chat.ConversationItem) {
     if (sending) return
+    if (isAtlasConversation(item)) { openAtlas(); return }
     setAtlasOpen(false)
     selectionGeneration.current++
     if (history.snapshot().accessLost && selectedId === item.id) void history.select(item.id)
-    setImage(null); setMedia(null); setExporting(null); setTool(null); setMenuMode(null); setSelected(item); setUnreadMark(item.unread_count > 0 ? { id: item.id, seq: item.last_read_seq, count: item.unread_count } : null); setBody(conversationDrafts.read(me?.id ?? '', item.id)); setForcedCaret(undefined); setReply(null); setEditing(null); setPerson(null); setVotes(null)
+    setImage(null); setSelectionIds(null); setMedia(null); setExporting(null); setTool(null); setMenuMode(null); setSelected(item); setUnreadMark(item.unread_count > 0 ? { id: item.id, seq: item.last_read_seq, count: item.unread_count } : null); setBody(conversationDrafts.read(me?.id ?? '', item.id)); setForcedCaret(undefined); setReply(null); setEditing(null); setPerson(null); setVotes(null)
     setAttachments([]); setError(''); setPicker(false); draftId.current = randomUUID()
   }
   function changeBody(value: string) {
@@ -447,7 +462,7 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
     })
     return () => listener.remove()
   }, [tool, menu, selection, atlasOpen]))
-  const rowState = useMemo(() => ({ selected: selected?.id, blocked, typingIn }), [selected?.id, blocked, typingIn])
+  const rowState = useMemo(() => ({ selected: selected?.id, blocked, typingIn, listPresence }), [selected?.id, blocked, typingIn, listPresence])
   // The composer keeps itself above the keyboard (useKeyboardInset), so no KeyboardAvoidingView wraps the screen.
   return <View style={{ flex: 1 }}>
     {cameraRequest && <CameraCapture limit={cameraRequest.limit} onDone={finishCamera} />}
@@ -482,7 +497,7 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
         <FlatList style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ paddingBottom: 80 }} scrollEventThrottle={64} initialNumToRender={20} maxToRenderPerBatch={20} windowSize={9} removeClippedSubviews={Platform.OS === 'android'}
           onLayout={e => { listBox.current.height = e.nativeEvent.layout.height; nearEnd() }} onContentSizeChange={(_w, h) => { listBox.current.content = h; nearEnd() }} onScroll={e => { listBox.current.offset = e.nativeEvent.contentOffset.y; nearEnd() }}
           data={preview ? [] : visibleRows} keyExtractor={item => item.id} extraData={rowState}
-          renderItem={({ item }) => <ConversationRow item={item} selected={selected?.id === item.id} disabled={blocked} typing={typingIn.has(item.id)} onPress={() => choose(item)} onMenu={() => setRowMenu(item)} />}
+          renderItem={({ item }) => <ConversationRow item={item} online={item.kind === 'direct' && !isSelfChat(item, me?.id) && !item.is_atlas && !!item.peer && listPresence[item.peer.id] === true} selected={selected?.id === item.id} disabled={blocked} typing={typingIn.has(item.id)} onPress={() => choose(item)} onMenu={() => setRowMenu(item)} />}
           ListHeaderComponent={<>
             {!preview && filter === 'all' && !query && lockedCount > 0 && <Pressable accessibilityRole="button" accessibilityLabel={`Locked chats, ${lockedCount}`} onPress={() => setFilter('locked')} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, paddingVertical: 12, borderBottomWidth: 1, borderColor: c.border, backgroundColor: pressed ? c.hover : 'transparent' })}>
               <View style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: c.successSoft }}><Icon name="lock" size={20} color={c.brand} /></View>
@@ -518,6 +533,7 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
             <PeerCallButton conversation={selected} />
             <HeaderButton icon="moreVertical" label="Conversation options" onPress={() => setMenuMode('options')} />
           </View>
+          {selectionIds && <View style={{ flexDirection: 'row', alignItems: 'center', padding: 8, gap: 12, backgroundColor: c.shell }}><HeaderButton icon="x" label="Cancel selection" onPress={() => setSelectionIds(null)} /><Text style={{ flex: 1, color: c.text }}>{selectionIds.length} selected</Text><HeaderButton icon="forward" label="Forward selected messages" disabled={!selectionIds.length} onPress={() => { setForwarding(messages.filter(m => selectionIds.includes(m.id) && m.can.forward && !m.deleted)); setSelectionIds(null) }} /></View>}
           <View style={{flex:1,backgroundColor:appearance?.type==='color' && /^#[0-9a-f]{6}$/i.test(appearance.color??'')?appearance.color!:'transparent'}}>{backgroundImage&&<Image pointerEvents="none" source={{uri:backgroundImage}} style={{position:'absolute',width:'100%',height:'100%',opacity:0.35}} resizeMode="cover"/>}<FlatList accessibilityLabel={readerAway ? 'Message history' : 'Latest messages'} key={selected.id} ref={listRef} data={displayMessages} initialNumToRender={OPEN_PAGE + 10} pointerEvents={placing ? 'none' : 'auto'} style={{ opacity: placing ? 0 : 1 }} keyExtractor={m => `${m.client_id ?? m.id}:${m.attachments[0]?.id ?? ''}`} ListFooterComponent={<PendingMessages conversation={selected.id} messages={messages} entries={mergePendingPreview(pending.entries, savingMessage, me?.id)} />} contentContainerStyle={{ paddingVertical: 14, flexGrow: 1, justifyContent: 'flex-end' }} keyboardShouldPersistTaps="handled"
             onLayout={() => { if ((nearBottom.current || followIncoming.current) && !historyState.window.hasMoreAfter) listRef.current?.scrollToOffset({ offset: contentHeight.current, animated: false }) }} onViewableItemsChanged={onViewable} viewabilityConfig={viewability} maintainVisibleContentPosition={readerAway ? { minIndexForVisible: 0 } : undefined}
             scrollEventThrottle={16} onScroll={event => { if (placing) return; const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent; const resized = messageViewportHeight.current !== layoutMeasurement.height; messageViewportHeight.current = layoutMeasurement.height; if (resized && followIncoming.current && !historyState.window.hasMoreAfter) { listRef.current?.scrollToEnd({ animated: false }); return } const atBottom = contentSize.height - layoutMeasurement.height - contentOffset.y < 96; const movedUp = contentOffset.y < scrollOffset.current - 1; const moved = Math.abs(contentOffset.y - scrollOffset.current) > 1; scrollOffset.current = contentOffset.y; if (movedUp) { followIncoming.current = false; nearBottom.current = atBottom } else if (atBottom || moved && !followIncoming.current) nearBottom.current = atBottom; setReaderAway(!nearBottom.current); if (nearBottom.current && !historyState.window.hasMoreAfter) setNewMessages(false) }}
@@ -533,16 +549,18 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
               // Bubbles that end with text keep the time inline on the last line, as the reference floats it right.
               const plain = !m.deleted && !!m.body && !m.poll && !m.location && !m.event && !m.contact && !firstLink(m.body)
               // U-028: a sticker is drawn alone, without a bubble (WhatsApp).
-              if (isStickerMessage(m)) return <>{day}<StickerBubble own={own} tail={runStart} sender={selected.kind === 'group' && !own && runStart ? m.sender?.name || 'JM' : null} attachment={m.attachments[0]} origin={origin} label={`Sticker from ${m.sender?.name || 'JM'}`} meta={meta} selected={actions?.id === m.id} onActions={blocked ? undefined : () => setActions(originalMessage(m))}
-                forwarded={m.forwarded} reply={m.reply_to} onJump={seq => void history.latest(seq)} reactions={m.reactions} onReactions={() => setActions(originalMessage(m))} onOpen={() => setImage({ conversation: m.conversation, message: m.id, attachment: m.attachments[0].id })} /></>
-              return <>{day}<MessageBubble own={own} tail={runStart} sender={selected.kind === 'group' && !own && runStart ? m.sender?.name || 'JM' : null} label={`Message from ${m.sender?.name || 'JM'}`} meta={meta} inlineMeta={plain} metaOverlay={!m.deleted && !m.body && !m.poll && !m.location && !m.event && !m.contact && overlaysMeta(m.attachments)} selected={actions?.id === m.id} chevron={!m.deleted} actionsDisabled={blocked} onActions={() => setActions(originalMessage(m))}
-                forwarded={!m.deleted && m.forwarded} reply={!m.deleted ? m.reply_to : null} onJump={seq => void history.latest(seq)} reactions={!m.deleted ? m.reactions : undefined} onReactions={() => setActions(originalMessage(m))}><View style={{ gap: 4 }}>
+              const renderBubble = () => { if (isStickerMessage(m)) return <>{day}<StickerBubble own={own} tail={runStart} sender={selected.kind === 'group' && !own && runStart ? m.sender?.name || 'JM' : null} attachment={m.attachments[0]} origin={origin} label={`Sticker from ${m.sender?.name || 'JM'}`} meta={meta} selected={actions?.id === m.id} onActions={blocked ? undefined : () => setActions(m)}
+                forwarded={m.forwarded} reply={m.reply_to} onJump={seq => void history.latest(seq)} reactions={m.reactions} onReactions={() => setActions(m)} onOpen={() => setImage({ conversation: m.conversation, message: m.id, attachment: m.attachments[0].id })} /></>
+              return <>{day}<MessageBubble own={own} tail={runStart} sender={selected.kind === 'group' && !own && runStart ? m.sender?.name || 'JM' : null} label={`Message from ${m.sender?.name || 'JM'}`} meta={meta} inlineMeta={plain} metaOverlay={!m.deleted && !m.body && !m.poll && !m.location && !m.event && !m.contact && overlaysMeta(m.attachments)} selected={actions?.id === m.id} chevron={!m.deleted} actionsDisabled={blocked} onActions={() => setActions(m)}
+                forwarded={!m.deleted && m.forwarded} reply={!m.deleted ? m.reply_to : null} onJump={seq => void history.latest(seq)} reactions={!m.deleted ? m.reactions : undefined} onReactions={() => setActions(m)}><View style={{ gap: 4 }}>
               {!m.deleted && m.attachments.length > 0 && <MessageAttachments items={m.attachments} own={own} origin={origin} onImage={a => setImage({ conversation: m.conversation, message: attachmentOwner(a.id, m.id), attachment: a.id })} onMedia={a => (a.kind === 'video' ? setImage : setMedia)({ conversation: m.conversation, message: attachmentOwner(a.id, m.id), attachment: a.id })} onExport={a => setExporting({ conversation: m.conversation, message: attachmentOwner(a.id, m.id), attachment: a.id })} />}
               {m.deleted ? <DeletedText own={own} moderator={m.deleted_by_moderator} /> : !!m.body && <RichMessage own={own} body={m.body} mentions={live.members.filter(member=>m.mentions.includes(member.user.id)).map(member=>member.user.name)} trailing={plain ? <MessageMetaSpacer {...meta} /> : undefined} />}
               {!m.deleted && m.poll && <PollCard message={m} own={own} disabled={blocked} onVote={ids => void perform(() => chat.votePoll(m.id, ids))} onVoters={() => setVotes(m.id)} />}
               {!m.deleted && (m.location || m.event) && <SpecialMessage message={m} onChanged={() => void history.reconcile()} />}
               {!m.deleted && m.contact && <ContactCard person={m.contact} onProfile={() => setPerson(m.contact!)} />}
-            </View></MessageBubble></> }} />
+            </View></MessageBubble></> }
+              return <View>{renderBubble()}{selectionIds && m.can.forward && !m.deleted && <Pressable accessibilityRole="checkbox" accessibilityLabel={`Select message ${m.body || 'attachment'}`} accessibilityState={{ checked: selectionIds.includes(m.id) }} onPress={() => toggleSelection(m)} style={{ position: 'absolute', inset: 0, backgroundColor: selectionIds.includes(m.id) ? 'rgba(22,163,74,0.18)' : 'transparent', justifyContent: 'center', paddingLeft: 12 }}><Icon name={selectionIds.includes(m.id) ? 'check' : 'circle'} color={c.brand} size={24} /></Pressable>}</View>
+            }} />
             {(readerAway || newMessages || historyState.window.hasMoreAfter) && <Pressable accessibilityRole="button" accessibilityLabel={newMessages ? 'New messages — jump to latest' : 'Jump to latest'} onPress={() => { setNewMessages(false); void history.latest() }}
               style={{ position: 'absolute', right: 8, bottom: 8, padding: 2, ...listPointer }}>
               {/* WhatsApp: a 40px round button with a down chevron at the lower right; a green dot marks unseen new messages. 44px hit box. */}
@@ -601,15 +619,16 @@ export function Messenger({ preview = false, initialConversation, initialSeq, in
     {info && selected && info.conversation===selected.id && <MessageDetails message={info} onClose={()=>setInfo(null)} />}
     {votes && selected && messages.some(message => message.id === votes && !message.deleted) && <PollVoters id={votes} onClose={() => setVotes(null)} onPerson={value => { setVotes(null); setPerson(value) }} />}
     {person && selected && <PersonDetails person={person} onClose={() => setPerson(null)} />}
-    {forwarding && <ForwardMessage message={forwarding} onClose={() => { setForwarding(null); refresh() }} />}
-    {exporting&&exportAttachment&&<AttachmentExport key={exporting.message+exporting.attachment} conversation={exporting.conversation} message={exporting.message} seq={messages.find(m=>m.id===exporting.message)?.seq??0} attachment={exportAttachment} onClose={()=>setExporting(null)}/>}
+    {forwarding && <ForwardMessage messages={forwarding} onClose={() => { setForwarding(null); refresh() }} />}
+    {exporting&&exportAttachment&&<AttachmentExport key={exporting.message+exporting.attachment} conversation={exporting.conversation} message={exporting.message} seq={messages.find(m=>m.id===exporting.message)?.seq ?? gallery.find(item => item.message === exporting.message)?.seq ?? 0} attachment={exportAttachment} onClose={()=>setExporting(null)}/>}
     {mediaAttachment && <MediaPlayback attachment={mediaAttachment} onClose={() => setMedia(null)} />}
-    {imageAttachment && imageIndex >= 0 && selected && <ChatMediaViewer items={gallery} index={imageIndex} onIndex={i => { const item = gallery[i]; if (item) setImage({ conversation: selected.id, message: item.message, attachment: item.attachment.id }) }} onClose={() => setImage(null)} onShare={item => setExporting({ conversation: selected.id, message: item.message, attachment: item.attachment.id })} />}
+    {imageAttachment && imageIndex >= 0 && selected && <ChatMediaViewer onDeleted={(message, scope) => { setDeletedViewerMessages(ids => [...ids, message.id]); history.event({ type: scope === 'me' ? 'MESSAGE_HIDDEN' : 'MESSAGE_DELETED', data: { conversation: message.conversation, id: message.id, seq: message.seq, by_moderator: false, updated_at: new Date().toISOString() } }) }} conversation={selected.id} onForward={item => { setImage(null); setSelectionIds(null); const known = messages.find(m => m.id === item.message); if (known?.can.forward && !known.deleted) setForwarding([known]); else { const generation = selectionGeneration.current; void chat.getWindow(selected.id, { around: item.seq }).then(page => { if (generation !== selectionGeneration.current) return; const message = page.results.find(m => m.id === item.message); if (message && message.can.forward) setForwarding([message]) }).catch(e => { if (generation === selectionGeneration.current) setError(errorMessage(e)) }) } }} items={gallery} index={imageIndex} onIndex={i => { const item = gallery[i]; if (item) setImage({ conversation: selected.id, message: item.message, attachment: item.attachment.id }) }} onClose={() => setImage(null)} onShare={item => setExporting({ conversation: selected.id, message: item.message, attachment: item.attachment.id })} />}
     {picker && <ConversationPicker groupAllowed={Boolean(me?.capabilities.includes('JM_GROUP_CREATE') && me?.can_create_groups !== false)} onChoose={choose} onClose={() => setPicker(false)} />}
     <MessageActionSheet key={actions?.id ?? 'none'} message={actions} own={!!actions && actions.sender?.id === me?.id} busy={sending} canReply={!!selected?.can.send} editDisabled={attachments.length > 0} onClose={() => setActions(null)}
       onReact={emoji => { if (actions) void perform(() => chat.setReaction(actions.id, emoji)) }} onUnreact={() => { if (actions) void perform(() => chat.clearReaction(actions.id)) }}
       onReply={() => { if (!actions) return; if (editing && selected) setBody(conversationDrafts.read(me?.id ?? '', selected.id)); setEditing(null); setReply(actions); setActions(null); draftId.current = randomUUID() }}
-      onForward={() => { setForwarding(actions); setActions(null) }}
+      onForward={() => { if (actions) setForwarding(albumMessages(actions)); setActions(null) }}
+      onSelect={() => { if (actions) setSelectionIds(albumMessages(actions).map(m => m.id)); setActions(null) }}
       onEdit={() => { if (!actions) return; setEditing(actions); setReply(null); setBody(actions.body); setActions(null) }}
       onInfo={() => { setInfo(actions); setActions(null) }}
       onStar={a => { const path = a.preview_url || a.thumb_url; if (path) void perform(async () => { await favouriteStickers.star(a.id, { path }); setActionNotice(STARRED); setTimeout(() => setActionNotice(text => text === STARRED ? '' : text), 3000) }) }}

@@ -15,9 +15,9 @@ describe('reference shell layout', () => {
   })
   it('orders rail and phone tabs like the reference and hides unauthorized pages', () => {
     const all = shellLinks(['JM_ACCESS', 'JP_ACCESS', 'ADMIN_USER_VIEW', 'ADMIN_GROUP_VIEW', 'ADMIN_SECURITY_POLICY'])
-    expect(all.rail.map(l => l.title)).toEqual(['Home', 'Messenger', 'Notifications', 'Passwords', 'Tools', 'Approvals', 'People', 'Permission groups', 'Security'])
+    expect(all.rail.map(l => l.title)).toEqual(['Home', 'Messenger', 'Notifications', 'Bug tickets', 'Passwords', 'Tools', 'Approvals', 'People', 'Permission groups', 'Security'])
     expect(all.tabs.map(l => l.tabTitle)).toEqual(['Home', 'Tools', 'Chats', 'Passwords', 'Profile'])
-    expect(all.account.map(l => l.href)).toEqual(['/profile', '/alerts', '/tools', '/approvals', '/admin'])
+    expect(all.account.map(l => l.href)).toEqual(['/profile', '/tickets', '/alerts', '/tools', '/approvals', '/admin'])
     expect(all.tools).toBe('/notifications')
     // Reference BottomNav: without Passwords the JM Alerts list takes that slot.
     expect(shellLinks(['JM_ACCESS']).tabs.map(l => l.tabTitle)).toEqual(['Home', 'Alerts', 'Chats', 'Tools', 'Profile'])
@@ -25,7 +25,7 @@ describe('reference shell layout', () => {
     expect(shellLinks(['ADMIN_GROUP_VIEW']).rail.map(l => l.title)).toEqual(['Home', 'Permission groups'])
     expect(shellLinks(['ADMIN_GROUP_VIEW']).tools).toBe('/admin?tab=groups')
     expect(shellLinks([]).tabs.map(l => l.href)).toEqual(['/home', '/profile'])
-    expect(shellLinks([], true).rail).toHaveLength(11)
+    expect(shellLinks([], true).rail).toHaveLength(12)
     // One Tools entry; tool managers reach it even without Messenger, and there is no separate Software tools link.
     expect(shellLinks(['JM_ACCESS', 'ADMIN_USER_VIEW', 'ADMIN_GROUP_VIEW', 'ADMIN_TOOLS_MANAGE']).rail.filter(l => l.icon === 'tools').map(l => l.href)).toEqual(['/tools'])
     expect(shellLinks(['ADMIN_USER_VIEW', 'ADMIN_GROUP_VIEW', 'ADMIN_TOOLS_MANAGE']).rail.map(l => l.href)).toContain('/tools')

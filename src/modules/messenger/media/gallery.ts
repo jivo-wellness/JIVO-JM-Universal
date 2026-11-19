@@ -35,7 +35,7 @@ export async function pickDocuments(limit: number): Promise<PickedFile[]> {
       const dispose = () => { if (!directory.uri.startsWith(Paths.cache.uri)) throw Error('Unexpected picker cache path.'); if (directory.exists) directory.delete() }
       try {
         const copy = new File(directory, 'selected' + (asset.name.match(/\.[a-z0-9]{1,12}$/i)?.[0] ?? ''))
-        new File(asset.uri).copy(copy)
+        await new File(asset.uri).copy(copy)
         owned.push({ name: asset.name, size: copy.size, mime: asset.mimeType || 'application/octet-stream', uri: copy.uri, dispose })
       } catch (e) { dispose(); throw e }
     }

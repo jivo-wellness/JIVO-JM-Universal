@@ -242,6 +242,8 @@ async function run() {
       await page.getByLabel('Email', { exact: true }).fill('tester@example.invalid')
       await page.getByLabel('Password', { exact: true }).fill('mock-only-password')
       await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+      await page.getByTestId('workspace-shell').waitFor()
+      await page.evaluate(() => { window.shellNodes = ['workspace-shell','workspace-header','workspace-footer','workspace-rail'].map(id => [id, document.querySelector(`[data-testid="${id}"]`)]).filter(([,node]) => node) })
       await page.getByRole('button', { name: 'Open Example conversation', exact: true }).click()
       await page.getByText('Hello from the mocked API', { exact: true }).waitFor()
       if (process.env.JM_TEST_ONLY === 'chat-ux') {
@@ -337,7 +339,7 @@ async function run() {
         const album = {...message('album-preview', Math.max(...messages.map(m=>m.seq))+1, ''), kind:'attachment', attachments:Array.from({length:7},(_,i)=>({id:'album-photo-'+i,name:'Album '+i+'.png',kind:'image',status:'ready',size:100,mime:'image/png',width:400,height:400,thumb_url:'/api/jm/media/mock.png',preview_url:'/api/jm/media/mock.png',download_url:'/api/jm/media/mock.png',created_at:'2026-10-20T12:00:00Z'}))}
         messages.push(album);socketClient.send(JSON.stringify({type:'MESSAGE_CREATED',data:album}))
         if(width<768) await page.getByRole('button',{name:'Back to conversations',exact:true}).click()
-        else await page.goto(base+'/messenger')
+        else await page.getByRole('link', { name: 'Messenger', exact: true }).click()
         await page.getByRole('button',{name:'Open Example conversation',exact:true}).first().click()
         await expect(page.getByRole('button',{name:/^View image Album /})).toHaveCount(4)
         await expect(page.getByText('+3',{exact:true})).toBeVisible()
@@ -359,6 +361,8 @@ async function run() {
         await expect(page.getByRole('button', { name: 'Your details', exact: true })).toBeVisible()
         await page.screenshot({path:`test-results/profile-pages-${width}.png`,fullPage:true})
         assert.deepEqual(runtimeErrors,[])
+        assert.equal(await page.evaluate(() => window.shellNodes.every(([id,node]) => node.isConnected && node === document.querySelector(`[data-testid="${id}"]`))), true, 'Chat, notifications and profile must share the same shell')
+        await signOut(page); await expect(page.getByTestId('workspace-shell')).toHaveCount(0)
         console.log('PASS chat UX: progressive text, audio controls, follow/reader position, send/edit/retry, flat notification screens')
         await context.close();continue
       }

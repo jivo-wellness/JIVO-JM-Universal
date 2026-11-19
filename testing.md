@@ -407,3 +407,56 @@ composer and sign-in; they were fixed (shell/list, chat, sign-in) and the recapt
 Still different: some icons are stand-ins (refresh, ClipboardCheck, ShieldCheck, LockKeyhole, MessagesSquare,
 Megaphone); the rail bell opens Notifications instead of a dropdown; the mic opens the capture sheet instead of
 hold-to-record; reactions show inside the bubble; attachment/poll/contact cards and the reply strip are not restyled.
+
+
+## 2026-11-19: Universal bug tickets (U-037)
+
+- Added 20 tests covering attachment count/size/type validation, ticket-only upload purpose, upload/scan failure, cancellation before submission, authenticated update/download paths, notification routing, post-login links and capability-aware navigation.
+- Full Vitest: **809/809 passed across 118 files** (`--maxWorkers=2`). The first run caught the expected shell-menu assertion; updated it for the new ticket entry and reran the full suite successfully.
+- Expo lint and all three TypeScript configurations: **PASS**, no lint warnings.
+- Tool/PWA policy tests: **8/8 PASS**. The sandbox's Node user-profile lookup failed before execution; the same command outside the sandbox ran successfully. The all-routes test also caught the existing `/profile-settings` omission; all three route allowlists now include it, as well as tickets. Ticket APIs and attachment URLs bypass the service-worker cache.
+- `JM_TEST_ONLY=tickets node run-mocked-ui.cjs`: **PASS at 360, 768 and 1440 pixels**. Uses an entirely intercepted API and synthetic accounts: report with scanned attachment, assignment, status changes, reply, resolution, reopening, confirmed download and JM_ACCESS denial. No unexpected API/external requests or page errors. Screenshots `test-results/tickets-{360,768,1440}.png`; phone and desktop images inspected, no horizontal overflow.
+- The walkthrough validates the app UI/API contract, not a live backend or physical-device system picker/share sheet. No production changes or installs were performed. Existing chat/media/Atlas workspace edits were preserved; builds include the current workspace.
+- Signed ARM64 Android release: **PASS**, Gradle `BUILD SUCCESSFUL`, 719 tasks (25 executed), 2m56s. APK signature verified with Android build-tools apksigner (v2, one signer). APK: `android/app/build/outputs/apk/release/app-release.apk`, 44,690,579 bytes, SHA-256 `60F4447F2106BFD4787ADACFFE862B48667689198000E6493017036E43A3F09A`. Built using the existing local signing configuration; not installed or published. Logs are local in `.tmp/tickets-*.log`.
+
+- Universal production web/PWA build: **PASS** (235 public-shell files, 5.57 MiB). Production PWA smoke test: **PASS**, no page errors; validates install assets, offline public shell, private API cache exclusion, share intake and explicit update activation. Isolated localhost fixture only.
+
+- Separate JM web frontend regression follow-up: **438/438 passed across 91 files**, 191.48s. Backend integration/security results remain in JIVO-JM-Backend/docs/bug-tickets-qa.md; the previous full backend run had the documented Windows sandbox key-file error and a passing isolated recheck. No new backend runtime changes were made for the app.
+
+
+## 2026-11-19: Ticket UI/UX refinement
+
+- Lint and app/tools/PWA TypeScript checks passed. Existing ticket and shell tests: 29/29 passed.
+- The updated intercepted-API walkthrough passed at 360, 768 and 1440 pixels, including report/upload, expandable assignment/status controls, reply, resolve/reopen, export and denied access. It now checks console errors as well as page errors.
+- Light/dark list screenshots and report/detail screenshots captured in test-results/tickets-*.png. Visually inspected phone light/dark list, phone detail and desktop report; no horizontal overflow. Compact mobile counters keep the first ticket visible.
+- Corrected an empty-string conditional that caused a native text warning in the empty list during the first visual pass. The final walkthrough has no console or page errors.
+- Existing permissions and API behavior are unchanged. No live-backend test or physical-device install was performed. Android rebuild result follows.
+
+- Updated signed ARM64 APK: **BUILD SUCCESSFUL** in 3m11s (719 tasks, 25 executed). Signature verification passed. Size: 44699079 bytes; SHA-256 `94e7de2839ea2736d75946ea1b8d6ef5d7ec003d5a5b7a5edbe2cc5681295c70`. Output: `android/app/build/outputs/apk/release/app-release.apk`. Not installed or published.
+
+
+## 2026-11-19: Persistent workspace navigation (U-038)
+
+- Moved signed-in pages into the URL-transparent `(workspace)` group, with one WorkspaceShell surrounding a Slot and content-only PageTransition. Header/footer stay mounted even while immersive chat hides them. Existing account/session gates and standalone public/full-screen routes remain in place.
+- Full unit suite: **809/809 passed across 118 files**. Final lint and app/tools/PWA typechecks passed. Route/cache policy checks: **8/8 passed**, including inventory of every route through transparent groups.
+- Ticket workflow at **360, 768 and 1440px** passed with strict DOM identity assertions for header/footer/rail across Home, list, report, detail and back navigation. No duplicate shell, page errors or console errors. Normal navigation generated intermediate content opacity; reduced-motion mode (768px) generated none throughout the entire workflow.
+- Chat UX walkthrough passed at **360 and 1440px**, exercising open-chat immersive mode, message actions, notifications/preferences and Profile header actions/settings/back. The final 360px run also verifies logout removes the workspace. Shell element identity remains unchanged across all authenticated page switches. A development hot refresh interrupted one intermediate run; the fresh final run passed.
+- URLs, server APIs and permissions did not change. The menu/tooltip state belongs to its opening route; reduced motion and the first render skip animation. No delayed page snapshots are stored for transitions.
+- Build results follow. No production deployment or physical-device installation was performed.
+
+- Production web build: **PASS**, 236 public shell files / 5.58 MiB. PWA production smoke check: **PASS**, no page errors, authenticated APIs excluded from offline cache.
+- Signed ARM64 release APK: **BUILD SUCCESSFUL** in 3m23s, 719 tasks (32 executed). Signature verification passed. Size 44702663 bytes; SHA-256 `c11ec8eab9dc91f9343f74e833f66c52e07198b54c26a5905384f516d3bfcdcf`. Output `android/app/build/outputs/apk/release/app-release.apk`. Not installed or published.
+
+
+## 2026-11-19: Atlas routing and composer (U-039)
+
+- Lint and all three TypeScript configurations passed. Full unit suite: 817/817 across 119 files, including eight routing cases covering the verified flag, missing flags, groups and same-name people.
+- `JM_TEST_ONLY=atlas node run-mocked-ui.cjs`: passed at 360px and 1440px. Checks floating button, Atlas account row, direct conversation link and `/atlas`; sends exactly text/reply_to to the Atlas endpoint; all seven attachment entries, camera and microphone disabled; access-denied state has no composer. No unexpected API calls, page errors or console errors. Reviewed phone menu screenshot. Uses synthetic API responses, not the live Atlas service.
+- First UI run failed because its fixture accidentally removed all JM access while testing Atlas denial; corrected the fixture and both final viewport runs passed.
+
+- Signed ARM64 release APK: BUILD SUCCESSFUL in 3m18s, 719 tasks (25 executed). Output `android/app/build/outputs/apk/release/app-release.apk`. Not installed on a physical phone or published.
+
+
+## 2026-11-19: Chat-list avatar presence and native push setup
+
+App chat-list presence checks pass at 360px and 1440px: a 12px dot at the avatar top-right, removal on offline, restoration on online, no last-seen row and no unexpected API calls/errors. Presence requests are batched in groups of 100; self chats, Atlas, groups and concealed locked rows are excluded. Web list moves its existing dot and removes its last-seen line; message timestamps and open-chat presence remain. Web lint/typecheck and five existing live-store tests pass. App full suite: 824 tests pass. Native push configuration test passes; see docs/android-push-setup.md for remaining credentials and device verification.

@@ -159,6 +159,8 @@ export interface ConversationItem {
   peer: PersonCard | null
   /** The chat with yourself (notes, files to keep), titled with your own name. */
   is_self?: boolean
+  /** Server-verified Atlas account. Open the private AI interface, not a normal direct chat. */
+  is_atlas?: boolean
   /** Disappearing messages for new messages, in seconds (0 = off). */
   disappearing_seconds?: number
   /** Chat lock: out of the list until "confirm it's you". */

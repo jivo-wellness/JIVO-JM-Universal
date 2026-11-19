@@ -12,14 +12,23 @@ export async function setupChannels() {
     await Notifications.setNotificationChannelAsync(id, { name: sound ? 'JM messages' : 'JM silent messages', importance: AndroidImportance.HIGH, ...(sound ? {} : { sound: null }), enableVibrate: vibrate, vibrationPattern: vibrate ? [0, 120, 60, 120] : [0], lockscreenVisibility: AndroidNotificationVisibility.PRIVATE })
   }
 }
-export async function registerNativePush(requestPermission: boolean, owner: string) {
+export async function registerNativePush(requestPermission: boolean, owner: string, current: () => boolean = () => true) {
+  if (!owner || !current()) return
+  if (Platform.OS === 'android' && Constants.expoConfig?.extra?.androidPushConfigured === false) throw Error('Push notifications are not configured in this app version. Please install the updated JM app when available.')
   const projectId = pushProjectId()
   if (!projectId) throw Error('Expo project ID is not configured. Add EXPO_PUBLIC_EAS_PROJECT_ID and rebuild with push credentials.')
   await setupChannels()
   let permission = await Notifications.getPermissionsAsync()
   if (!permission.granted && requestPermission) permission = await Notifications.requestPermissionsAsync()
   if (!permission.granted) throw Error('Allow notifications in device settings to enable push.')
-  const token = await Notifications.getExpoPushTokenAsync({ projectId })
+  if (!current()) return
+  let token
+  try { token = await Notifications.getExpoPushTokenAsync({ projectId }) }
+  catch (error) {
+    if (error instanceof Error && /Firebase|googleServicesFile|google-services/i.test(error.message)) throw Error('Push notifications are not configured in this app version. Please install the updated JM app when available.')
+    throw error
+  }
+  if (!current()) return
   await api.post('/push/expo/', { token: token.data }, { headers: { 'X-JM-Expected-User': owner } })
 }
 export async function nativePushState() {

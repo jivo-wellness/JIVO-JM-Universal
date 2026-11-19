@@ -8,5 +8,5 @@ export async function pickDocument(type:string|string[]='*/*'):Promise<PickedFil
  if(!asset.uri.startsWith('file://')&&!asset.uri.startsWith('content://'))throw Error('The provider did not return a local file.')
  const directory=new Directory(Paths.cache,'jivo-picker-'+randomUUID());directory.create();const extension=asset.name.match(/\.[a-z0-9]{1,12}$/i)?.[0]??'';const copy=new File(directory,'selected'+extension)
  const dispose=()=>{if(!directory.uri.startsWith(Paths.cache.uri))throw Error('Unexpected picker cache path.');if(directory.exists)directory.delete()}
- try{new File(asset.uri).copy(copy);return{name:asset.name,size:copy.size,mime:asset.mimeType||'application/octet-stream',uri:copy.uri,dispose}}catch(e){dispose();throw e}
+ try{await new File(asset.uri).copy(copy);return{name:asset.name,size:copy.size,mime:asset.mimeType||'application/octet-stream',uri:copy.uri,dispose}}catch(e){dispose();throw e}
 }

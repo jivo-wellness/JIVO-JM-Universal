@@ -1,7 +1,7 @@
-import { Fragment, useState } from 'react'
+import { createContext, Fragment, useCallback, useContext, useLayoutEffect, useState, type ReactNode, type Dispatch, type SetStateAction } from 'react'
 import { Platform, View, Text, ScrollView, Pressable, useWindowDimensions, type ViewStyle } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Link, Redirect, useLocalSearchParams, usePathname, useRouter } from 'expo-router'
+import { Link, Redirect, useGlobalSearchParams, usePathname, useRouter } from 'expo-router'
 import { useSession } from '../core/auth/Session'
 import { Label, Spinner, glass, radius, useColors } from '../ui'
 import { errorMessage, origin } from '../core/api/client'
@@ -9,7 +9,6 @@ import { mediaUrl } from '../modules/messenger/media/url'
 import { useTheme } from '../core/theme/useTheme'
 import { ChatAvatar } from './ChatAvatar'
 import { ConfirmDialog } from './Sheet'
-import type { ReactNode } from 'react'
 import { ConnectionStatus, SessionUnreachable } from './ConnectionStatus'
 import { LiveAlertBanner, useLiveUpdates } from './LiveUpdates'
 import { Brand } from './Brand'
@@ -24,16 +23,38 @@ import { greeting, safeNext } from '../shared/authNavigation'
 import { useWaitingApprovals } from '../modules/approvals/useWaitingApprovals'
 import { APPROVALS_ACCESS, badgeText } from '../modules/approvals/model'
 const pointer = (Platform.OS === 'web' ? { cursor: 'pointer' } : {}) as ViewStyle
+const WorkspaceActions = createContext<Dispatch<SetStateAction<ReactNode>> | null>(null)
+/** Transient chrome belongs to the route where it opened; navigation closes it without a second paint. */
+function usePageState<T>(path: string, initial: T) {
+  const [state, setState] = useState({ path, value: initial })
+  if (state.path !== path) setState({ path, value: initial })
+  const set = useCallback((next: SetStateAction<T>) => setState(previous => {
+    const value = typeof next === 'function' ? (next as (value: T) => T)(previous.path === path ? previous.value : initial) : next
+    return previous.path === path && Object.is(previous.value, value) ? previous : { path, value }
+  }), [path, initial])
+  return [state.path === path ? state.value : initial, set] as const
+}
+/** Pages contribute content/actions; the route-group layout owns the single persistent shell. */
 export function Workspace({ children, preview = false, headerActions }: { children: ReactNode; preview?: boolean; headerActions?: ReactNode }) {
+  const register = useContext(WorkspaceActions)
+  return register && !preview ? <WorkspacePage register={register} headerActions={headerActions}>{children}</WorkspacePage> : <WorkspaceShell preview={preview} headerActions={headerActions}>{children}</WorkspaceShell>
+}
+function WorkspacePage({ children, headerActions, register }: { children: ReactNode; headerActions?: ReactNode; register: Dispatch<SetStateAction<ReactNode>> }) {
+  useLayoutEffect(() => { register(headerActions ?? null); return () => register(null) }, [headerActions, register])
+  return <>{children}</>
+}
+export function WorkspaceShell({ children, preview = false, headerActions: standaloneActions }: { children: ReactNode; preview?: boolean; headerActions?: ReactNode }) {
+  const [pageActions, setPageActions] = useState<ReactNode>(null)
+  const headerActions = standaloneActions ?? pageActions
   const { me, logout, status, retry, reading } = useSession(); const c = useColors(); const { width } = useWindowDimensions()
   const pathname = usePathname()
-  const params = useLocalSearchParams<Record<string, string | string[]>>()
+  const params = useGlobalSearchParams<Record<string, string | string[]>>()
   const [error, setError] = useState('')
-  const [immersive, setImmersive] = useState(false)
-  const [hover, setHover] = useState('')
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [immersive, setImmersive] = usePageState(pathname, false)
+  const [hover, setHover] = usePageState(pathname, '')
+  const [menuOpen, setMenuOpen] = usePageState(pathname, false)
   const [confirmOut, setConfirmOut] = useState(false)
-  const [bellOpen, setBellOpen] = useState(false)
+  const [bellOpen, setBellOpen] = usePageState(pathname, false)
   const [signingOut, setSigningOut] = useState(false)
   const [railScroll, setRailScroll] = useState(0)
   const inset = useSafeAreaInsets()
@@ -101,10 +122,10 @@ export function Workspace({ children, preview = false, headerActions }: { childr
     return <Link key={l.href} href={(preview ? '/preview' : l.href) as '/messenger'} accessibilityLabel={l.tabTitle} asChild><Pressable accessibilityLabel={l.tabTitle} accessibilityState={{ selected: active }} style={tabStyle}><View style={{ minWidth: 52, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: active && chatsPage ? c.successSoft : 'transparent' }}><Icon name={l.icon} size={24} color={active ? c.brand : c.muted} />{badge(l.href, -6, -12)}</View>{tabLabel(l.tabTitle, active)}</Pressable></Link>
   }
   const menuRow = (label: string, icon: IconName, onPress: () => void, danger = false) => <Pressable key={label} accessibilityRole="menuitem" accessibilityLabel={label} onPress={onPress} {...hoverProps('menu:' + label)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 6, backgroundColor: hover === 'menu:' + label ? (danger ? (c.dark ? 'rgba(248,113,113,0.1)' : 'rgba(185,28,28,0.1)') : c.hover) : 'transparent', ...pointer }}><Icon name={icon} size={16} color={danger ? c.danger : c.text} /><Text style={{ fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20, color: danger ? c.danger : c.text }}>{label}</Text></Pressable>
-  return <WorkspaceChrome.Provider value={setImmersive}><SafeAreaView style={{ flex: 1, backgroundColor: chatsPage ? c.shell : c.bg }}>
+  return <WorkspaceActions.Provider value={setPageActions}><WorkspaceChrome.Provider value={setImmersive}><SafeAreaView testID="workspace-shell" style={{ flex: 1, backgroundColor: chatsPage ? c.shell : c.bg }}>
     {!chatsPage && <AppBackdrop dark={c.dark} />}
     {/* Reference phone top bar: only the logo, where you are, and the light/dark switch. */}
-    {!wide && !immersive && <View style={[{ height: 56, paddingLeft: 16, paddingRight: 8, gap: 12, borderBottomWidth: 1, flexDirection: 'row', alignItems: 'center' }, glass(c, 1), chatChrome, chatsPage ? { zIndex: 1, boxShadow: '0 2px 8px rgba(0,0,0,0.07)' } : {}]}>
+    {!wide && <View testID="workspace-header" accessibilityElementsHidden={immersive} importantForAccessibility={immersive ? 'no-hide-descendants' : 'auto'} style={[{ display: immersive ? 'none' : 'flex', height: 56, paddingLeft: 16, paddingRight: 8, gap: 12, borderBottomWidth: 1, flexDirection: 'row', alignItems: 'center' }, glass(c, 1), chatChrome, chatsPage ? { zIndex: 1, boxShadow: '0 2px 8px rgba(0,0,0,0.07)' } : {}]}>
       <Brand compact />
       <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, minWidth: 0, color: c.text, fontFamily: 'Inter_600SemiBold', fontWeight: '600', fontSize: 18, lineHeight: 28 }}>{pageTitle}</Text>
       <ThemeToggle />
@@ -116,7 +137,7 @@ export function Workspace({ children, preview = false, headerActions }: { childr
     {!preview && <LiveAlertBanner />}
     {preview && <Text style={{ padding: 10, color: c.muted }}>Layout preview • fictional content • no API requests</Text>}
     <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column' }}>
-      {wide && <View style={[{ width: 72, borderRightWidth: 1, alignItems: 'center' }, glass(c, 1)]}>
+      {wide && <View testID="workspace-rail" style={[{ width: 72, borderRightWidth: 1, alignItems: 'center' }, glass(c, 1)]}>
         <View style={{ height: 64, width: 72, justifyContent: 'center', alignItems: 'center' }}><Brand compact /></View>
         <ScrollView style={{ flex: 1, alignSelf: 'stretch' }} scrollEventThrottle={16} onScroll={e => setRailScroll(e.nativeEvent.contentOffset.y)} contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, gap: 4, alignItems: 'center' }}>
           {rail.map(l => <Fragment key={l.href}>{railItem(l)}{l.href === tools && railTheme}</Fragment>)}
@@ -125,7 +146,7 @@ export function Workspace({ children, preview = false, headerActions }: { childr
         <View style={{ paddingHorizontal: 12, paddingVertical: 12 }}>{preview ? <Link href="/login" accessibilityLabel="Back to sign in"><Icon name="back" /></Link> : railProfile}</View>
       </View>}
       <View style={{ flex: 1, minWidth: 0, ...(wide && !full ? { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 16 } : {}) }}>{wide && headerActions && <View style={{ alignItems: 'flex-end', minHeight: 44 }}>{headerActions}</View>}{children}</View>
-      {!wide && !immersive && <View accessibilityLabel="Main" style={[{ flexDirection: 'row', borderTopWidth: 1 }, glass(c, 1), chatChrome, chatsPage ? { boxShadow: '0 -2px 10px rgba(0,0,0,0.08)' } : {}]}>{tabs.map(tabItem)}</View>}
+      {!wide && <View testID="workspace-footer" accessibilityElementsHidden={immersive} importantForAccessibility={immersive ? 'no-hide-descendants' : 'auto'} accessibilityLabel="Main" style={[{ display: immersive ? 'none' : 'flex', flexDirection: 'row', borderTopWidth: 1 }, glass(c, 1), chatChrome, chatsPage ? { boxShadow: '0 -2px 10px rgba(0,0,0,0.08)' } : {}]}>{tabs.map(tabItem)}</View>}
     </View>
     {/* Reference ProfileTab hold menu: Profile & security and Sign out (asks first). Approvals and Administration,
         which are not in the phone bar, are listed here too until the Profile page links to them. */}
@@ -144,6 +165,6 @@ export function Workspace({ children, preview = false, headerActions }: { childr
     <ConfirmDialog visible={confirmOut} onClose={() => setConfirmOut(false)} title="Sign out of JM?" body="You will need your password (and passkey, if you use one) to sign in again on this device." confirmLabel="Sign out" danger loading={signingOut} onConfirm={signOut} />
     {/* Reference ConnectionBanner: fixed over the top of every page (the chat page reports its own network error). */}
     {!preview && <ConnectionStatus />}
-  </SafeAreaView></WorkspaceChrome.Provider>
+  </SafeAreaView></WorkspaceChrome.Provider></WorkspaceActions.Provider>
 }
 

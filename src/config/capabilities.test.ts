@@ -20,7 +20,7 @@ describe('capability rules', () => {
 // A user can hold one action without every action in its old alias bundle.
 describe('per-action web permissions', () => {
   it('keeps the web catalogue separate from legacy aliases', () => {
-    expect(CAPABILITIES).toHaveLength(95)
+    expect(CAPABILITIES).toHaveLength(96)
     expect(new Set(CAPABILITIES).size).toBe(CAPABILITIES.length)
     expect(CAPABILITIES.some(key => (LEGACY_CAPABILITIES as readonly string[]).includes(key))).toBe(false)
   })

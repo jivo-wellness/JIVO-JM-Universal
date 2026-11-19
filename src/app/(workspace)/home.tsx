@@ -1,11 +1,11 @@
 import { useRouter, type Href } from 'expo-router'
 import { Pressable, ScrollView, Text, View } from 'react-native'
-import { Workspace } from '../components/Workspace'
-import { useSession } from '../core/auth/Session'
-import { homeTiles } from '../shared/homeTiles'
-import { Icon, type IconName } from '../components/Icon'
-import { useColors } from '../ui'
-const icons: Record<string, IconName> = { Messenger: 'messagesSquare', Passwords: 'key', 'Profile & security': 'shieldCheck', People: 'users', 'Permission groups': 'shieldCheck', Security: 'lockKeyhole', Alerts: 'megaphone', 'Team vaults': 'vault', 'Emergency access': 'lifeBuoy', Oversight: 'eye' }
+import { Workspace } from '../../components/Workspace'
+import { useSession } from '../../core/auth/Session'
+import { homeTiles } from '../../shared/homeTiles'
+import { Icon, type IconName } from '../../components/Icon'
+import { useColors } from '../../ui'
+const icons: Record<string, IconName> = { 'Bug tickets': 'alertTriangle', Messenger: 'messagesSquare', Passwords: 'key', 'Profile & security': 'shieldCheck', People: 'users', 'Permission groups': 'shieldCheck', Security: 'lockKeyhole', Alerts: 'megaphone', 'Team vaults': 'vault', 'Emergency access': 'lifeBuoy', Oversight: 'eye' }
 export default function Home() {
   const { me } = useSession(); const c = useColors(); const router = useRouter()
   const tiles = homeTiles(me?.capabilities ?? [])

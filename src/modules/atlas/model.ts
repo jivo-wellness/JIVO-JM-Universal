@@ -27,6 +27,8 @@ export interface Ask {
   reply_to: number | null
   created_at: string
   answered_at: string | null
+  delivered?: boolean
+  connection_retrying?: boolean
   open: boolean
 }
 export interface AskPage { results: Ask[]; has_more: boolean }
@@ -94,7 +96,7 @@ export function sendFailure(error: unknown): SendFailure {
     const detail = typeof data.detail === 'string' && data.detail.trim() ? data.detail.trim() : null
     if (!error.response) return { kind: 'network', message: 'Cannot reach JM. Your question was not sent.', retryable: true, retryAfter: null }
     if (status === 429) {
-      const after = Number(data.retry_after)
+      const after = Number(data.retry_after ?? error.response?.headers?.['retry-after'])
       const retryAfter = Number.isFinite(after) && after > 0 ? Math.ceil(after) : null
       return { kind: 'rate_limited', message: detail ?? `Too many questions. Try again${retryAfter ? ` in ${retryAfter} s` : ' shortly'}.`, retryable: true, retryAfter }
     }

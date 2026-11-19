@@ -1,5 +1,5 @@
 import type { PickedFile } from './model'
-export function uploadForm(asset: PickedFile, purpose: 'attachment' | 'avatar' | 'background' | 'group_avatar' = 'attachment') {
+export function uploadForm(asset: PickedFile, purpose: 'attachment' | 'avatar' | 'background' | 'group_avatar' | 'ticket' = 'attachment') {
   const form = new FormData()
   // React Native's multipart networking accepts a URI descriptor instead of browser File.
   form.append('file', { uri: asset.uri, name: asset.name, type: asset.mime } as unknown as Blob)

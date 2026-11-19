@@ -19,7 +19,11 @@ Push-Location -LiteralPath $project
 try {
     if ($Bundle) { $Release = $true }
     if ($Release -and -not (Test-Path -LiteralPath $KeystorePath -PathType Leaf)) { throw 'Release builds require the existing JM upload key; debug signing is not allowed.' }
-    $configHash = (@('app.json', 'package-lock.json') | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $project $_) -Algorithm SHA256).Hash }) -join ':'
+    $googleServices = if ($env:GOOGLE_SERVICES_JSON) { $env:GOOGLE_SERVICES_JSON } else { Join-Path $project 'google-services.json' }
+    if ($Release -and -not (Test-Path -LiteralPath $googleServices -PathType Leaf)) { throw 'Android push setup is missing: supply google-services.json for com.jivo.jm or set GOOGLE_SERVICES_JSON before building a release.' }
+    $configFiles = @('app.json', 'app.config.js', 'package-lock.json')
+    if (Test-Path -LiteralPath $googleServices -PathType Leaf) { $configFiles += (Resolve-Path -LiteralPath $googleServices).Path }
+    $configHash = ($configFiles | ForEach-Object { $file = if ([System.IO.Path]::IsPathRooted($_)) { $_ } else { Join-Path $project $_ }; (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash }) -join ':'
     $marker = Join-Path $project 'android/.jm-config-hash'
     $generatedHash = if (Test-Path -LiteralPath $marker) { (Get-Content -LiteralPath $marker -Raw).Trim() } else { '' }
     if (-not (Test-Path -LiteralPath (Join-Path $project 'android/gradlew.bat')) -or $generatedHash -ne $configHash) {
@@ -44,7 +48,7 @@ try {
     } else {
         Write-Warning "Keystore $KeystorePath not found: signing with the public React Native template debug key. Production must NOT trust this build for passkeys / app links."
     }
-    $tasks = if ($Bundle) { @('app:assembleRelease', 'app:bundleRelease') } elseif ($Release) { @('app:assembleRelease') } else { @('app:assembleDebug') }
+    $tasks = @(if ($Bundle) { 'app:assembleRelease'; 'app:bundleRelease' } elseif ($Release) { 'app:assembleRelease' } else { 'app:assembleDebug' })
     if ($Release) { $env:NODE_ENV = 'production' } elseif (-not $env:NODE_ENV) { $env:NODE_ENV = 'development' }
     # Generated React Native target names are long even after object hashing.
     # Give only CMake's app staging directory a temporary short drive path.

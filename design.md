@@ -52,3 +52,18 @@ The existing local Android application ID and custom scheme remain. Original bra
 - Navigation order: rail Home, Messenger, Activity, Passwords, Approvals, Profile, Admin; phone bar Home, Activity, Chats, Passwords, Approvals, Profile, Admin. Approvals carries the amber waiting badge, Messenger the unread badge.
 - Shared media tabs are Media/Docs/Links (Voice removed, as in the Frontend). New icon assets `Phone.png` and `Mail.png` were rasterized from Lucide (ISC) path data and are registered in `Icon`.
 - Jivo Auth (FE-032 to FE-034, BE-083): one `useIdentity()` answer drives login labels, token pages, profile (central name and email read-only, password card only when `password_change` is advertised) and administration (automatic people list, no invitations).
+
+
+### Bug tickets (U-037)
+
+Routes `/tickets`, `/tickets/new` and `/tickets/[code]` use Workspace and a JM_ACCESS/account boundary. The module provides native report/list/detail screens, scanner-backed uploads, replies, assignment and status controls, and explicit attachment export. Choices use sheets for phone touch targets. Public-shell route allowlists include ticket links without caching authenticated responses. See docs/bug-tickets.md.
+
+
+### Ticket UI refinement (2026-11-19)
+
+Tickets use a focused 1080px list and 760px form/detail column. Four compact status counters double as filters; full-row ticket targets show status, priority, title, owner and update date. A single prominent report action, search and horizontally scrolling filter chips support phone use. Reports separate issue details from evidence; attachments use named file rows and 44px removal targets. Detail pages prioritize issue context and timeline, with management controls expandable and withdrawal behind an explicit action. Theme tokens cover light/dark contrast; status is communicated with labels as well as color.
+
+
+### Persistent navigation shell (U-038)
+
+`src/app/(workspace)/_layout.tsx` owns the signed-in workspace chrome. Routes render through a Slot inside PageTransition; page wrappers register header actions and render only their content. Header/footer/rail host elements keep their identity across workspace navigation. Auth/identity boundaries still tear down private content, and immersive chat hides chrome while retaining it. Normal title/badge/active-tab renders are expected; avoiding remounts prevents the visible navigation flash. Reduced motion disables the content animation.

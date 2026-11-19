@@ -5,6 +5,7 @@
 export const CAPABILITIES = [
   // Messenger
   'JM_ACCESS',
+  'JM_TICKETS_RESOLVE',
   'JM_DIRECTORY_VIEW',
   'JM_PRESENCE_VIEW',
   'JM_PROFILE_PHOTO',

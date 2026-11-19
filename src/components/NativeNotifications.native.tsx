@@ -1,3 +1,4 @@
+import { NativePushPrompt } from './NativePushPrompt.native'
 import { useEffect } from 'react'
 import { AppState } from 'react-native'
 import * as Notifications from 'expo-notifications'
@@ -31,11 +32,11 @@ export function NativeNotifications() {
     }
     const response = Notifications.addNotificationResponseReceivedListener(open)
     void Notifications.getLastNotificationResponseAsync().then(value => { if (value) open(value) })
-    const sync = () => { void nativePushState().then(state => { if (alive && state.enabled && state.subscribed && state.granted) return registerNativePush(false, me.id) }).catch(() => {}) }
+    const sync = () => { void nativePushState().then(state => { if (alive && state.enabled && state.subscribed && state.granted) return registerNativePush(false, me.id, () => alive) }).catch(() => {}) }
     sync()
     const token = Notifications.addPushTokenListener(() => sync())
     const app = AppState.addEventListener('change', state => { if (state === 'active') sync() })
     return () => { alive = false; changed(); response.remove(); token.remove(); app.remove(); Notifications.setNotificationHandler(null) }
   }, [me?.id, status, me])
-  return null
+  return status === 'ready' && me ? <NativePushPrompt key={me.id} owner={me.id} /> : null
 }

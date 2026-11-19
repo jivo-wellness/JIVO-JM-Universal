@@ -1,3 +1,4 @@
+import { MediaSwipe } from './MediaSwipe'
 import { ImageViewer } from './ImageViewer'
 import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Image, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
@@ -12,6 +13,7 @@ import { useColors } from '../ui'
 import { Icon } from './Icon'
 import { AttachPage } from './attach/AttachPage'
 import { ImageEditorPage } from './attach/ImageEditorPage'
+import { VideoThumbnail } from './attach/VideoThumbnail'
 import { VideoPreview } from './attach/VideoPreview'
 
 const web = Platform.OS === 'web'
@@ -90,7 +92,7 @@ export function AttachmentPreview({ initialFiles, source = 'document', notice: i
       </Pressable> : undefined}>
       <View style={{ flex: 1, minHeight: 120, paddingHorizontal: 16, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' }}>
         {kind === 'image' ? <ImageViewer key={current.key} uri={current.file.uri} name={current.file.name} previous={!busy && items.indexOf(current) > 0 ? () => setSelected(items[items.indexOf(current) - 1].key) : undefined} next={!busy && items.indexOf(current) < items.length - 1 ? () => setSelected(items[items.indexOf(current) + 1].key) : undefined} />
-          : kind === 'video' ? <VideoPreview key={current.key} uri={current.file.uri} label={`Video ${current.file.name}`} />
+          : kind === 'video' ? <MediaSwipe previous={!busy && items.indexOf(current) > 0 ? () => setSelected(items[items.indexOf(current) - 1].key) : undefined} next={!busy && items.indexOf(current) < items.length - 1 ? () => setSelected(items[items.indexOf(current) + 1].key) : undefined}><VideoPreview key={current.key} uri={current.file.uri} label={`Video ${current.file.name}`} /></MediaSwipe>
             : <View style={{ width: 288, maxWidth: '100%', alignItems: 'center', gap: 12, padding: 32, borderRadius: 16, backgroundColor: c.panel, boxShadow: '0 10px 30px rgba(0,0,0,0.12)' }}>
               <View style={{ width: 80, height: 96, borderRadius: 12, backgroundColor: c.successSoft, alignItems: 'center', justifyContent: 'center' }}>
                 <Icon name="fileText" size={40} color={c.brand} />
@@ -114,7 +116,7 @@ export function AttachmentPreview({ initialFiles, source = 'document', notice: i
               <Pressable accessibilityRole="button" accessibilityLabel={`Show ${item.file.name}`} accessibilityState={{ selected: on }} disabled={busy} onPress={() => setSelected(item.key)}
                 style={[{ width: 56, height: 56, borderRadius: 8, borderWidth: 2, borderColor: on ? c.brand : 'transparent', backgroundColor: k === 'video' ? '#111827' : c.panel, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }, pointer]}>
                 {k === 'image' ? <Image source={{ uri: item.file.uri }} style={{ width: '100%', height: '100%' }} />
-                  : k === 'video' ? <Icon name="play" size={22} color="#ffffff" />
+                  : k === 'video' ? <VideoThumbnail uri={item.file.uri} label={item.file.name} width={52} height={52} />
                     : <View style={{ alignItems: 'center', gap: 2 }}><Icon name="fileText" size={20} color={c.muted} /><Text style={{ color: c.muted, fontFamily: 'Inter_700Bold', fontWeight: '700', fontSize: 9 }}>{extensionOf(item.file.name)}</Text></View>}
               </Pressable>
               <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${item.file.name}`} disabled={busy} onPress={() => remove(item)} hitSlop={8}

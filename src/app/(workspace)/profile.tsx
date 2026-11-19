@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Modal, Pressable, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
-import { Workspace } from '../components/Workspace'
-import { ProfilePanel } from '../components/ProfilePanel'
-import { Icon } from '../components/Icon'
-import { useColors } from '../ui'
-import { useIdentity } from '../core/auth/identity'
+import { Workspace } from '../../components/Workspace'
+import { ProfilePanel } from '../../components/ProfilePanel'
+import { Icon } from '../../components/Icon'
+import { useColors } from '../../ui'
+import { useIdentity } from '../../core/auth/identity'
 const options = [['access', 'Access'], ['security', 'Two-step verification'], ['password', 'Password'], ['devices', 'Signed-in devices'], ['privacy', 'Privacy'], ['background', 'Chat background']]
 export default function Screen() {
  const [open, setOpen] = useState(false); const router = useRouter(); const c = useColors(); const { canChangePassword } = useIdentity()
