@@ -1,22 +1,23 @@
-﻿{
-    "package":  "com.jivo.jm",
-    "versionName":  "1.0.1",
-    "versionCode":  2,
-    "sourceCommit":  "e1c170efb96c7b288c3132be42796e123dcb81ce",
-    "architecture":  "arm64-v8a",
-    "apiOrigin":  "https://messenger.jivo.in",
-    "build":  "local",
-    "runtimeDeviceTested":  false,
-    "artifacts":  [
-                      {
-                          "name":  "jivo-jm-1.0.1-2.apk",
-                          "bytes":  44623131,
-                          "sha256":  "1f62c2cd9e44d3a9b27b882d30ba81b54678aa71b2631b431c5b681eb06e1fcc"
-                      },
-                      {
-                          "name":  "jivo-jm-1.0.1-2.aab",
-                          "bytes":  37859530,
-                          "sha256":  "503b96dda66cb1f5bd091f3c5a3a878462b7a8072830840bfd9f839983a7e9aa"
-                      }
-                  ]
+{
+  "package": "com.jivo.jm",
+  "versionName": "1.0.2",
+  "versionCode": 3,
+  "sourceCommit": "f5be76b806dfd851c62a8e05696f84d9f1fd911b",
+  "architecture": "arm64-v8a",
+  "apiOrigin": "https://messenger.jivo.in",
+  "build": "local",
+  "runtimeDeviceTested": true,
+  "artifacts": [
+    {
+      "name": "jivo-jm-1.0.2-3.apk",
+      "bytes": 44614247,
+      "sha256": "eab843cd673866f59431b5b09a7264700ae2917fbf9bb3e94b25f836e02db96c"
+    },
+    {
+      "name": "jivo-jm-1.0.2-3.aab",
+      "bytes": 37846018,
+      "sha256": "9e062684b151118872351036d9a3fa16482e499ea707769624635e7036aef70f"
+    }
+  ],
+  "runtimeTestScope": "Startup and repeated cold launch on Realme RMX5313 Android 15; sign-in confirmed by owner, two-step verification screen visually checked. Full signed-in regression not performed."
 }

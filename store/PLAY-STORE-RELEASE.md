@@ -1,6 +1,8 @@
 # JIVO JM - Android release and Play Store upload
 
-Updated 19 November 2026. Package: `com.jivo.jm`. Release candidate: **1.0.1 (version code 2)**.
+> **1.0.1 (2) withdrawn:** physical-device testing found an Android startup crash caused by screenshot-observer initialization without its deliberately blocked permission. Do not upload that APK/AAB. The replacement is 1.0.2 (3); the release verification is recorded below.
+
+Updated 19 November 2026. Package: `com.jivo.jm`. Release candidate: **1.0.2 (version code 3)**.
 
 ## Build status
 
@@ -8,25 +10,26 @@ Both signed artifacts were built locally and verified on 19 November 2026. The o
 
 ### Verified release artifacts
 
-Build source commit: `e1c170e`. Files are in the local, Git-ignored `release-artifacts/` directory:
+Build source commit: `f5be76b`. Files are in the local, Git-ignored `release-artifacts/` directory:
 
 | File | Purpose | Size (bytes) | SHA-256 |
 | --- | --- | ---: | --- |
-| `jivo-jm-1.0.1-2.apk` | Direct installation on ARM64 phones | 44,623,131 | `1f62c2cd9e44d3a9b27b882d30ba81b54678aa71b2631b431c5b681eb06e1fcc` |
-| `jivo-jm-1.0.1-2.aab` | Play Console internal testing upload | 37,859,530 | `503b96dda66cb1f5bd091f3c5a3a878462b7a8072830840bfd9f839983a7e9aa` |
+| `jivo-jm-1.0.2-3.apk` | Direct installation on ARM64 phones | 44,614,247 | `eab843cd673866f59431b5b09a7264700ae2917fbf9bb3e94b25f836e02db96c` |
+| `jivo-jm-1.0.2-3.aab` | Play Console internal testing upload | 37,846,018 | `9e062684b151118872351036d9a3fa16482e499ea707769624635e7036aef70f` |
 
 - Gradle `assembleRelease` and `bundleRelease`: passed.
 - TypeScript checks and ESLint: passed.
 - APK signature verification: passed, matching the existing upload certificate below.
 - AAB JAR signature: verified, same certificate; self-signed certificate and JAR streaming-order warnings were emitted. Google bundletool 1.18.3 validation also passed.
 - APK ZIP alignment and all 28 native libraries in both artifacts: passed 16 KB alignment checks.
-- Package `com.jivo.jm`, version `1.0.1`, version code `2`, minimum SDK `24`, target SDK `36`, architecture `arm64-v8a`.
+- Package `com.jivo.jm`, version `1.0.2`, version code `3`, minimum SDK `24`, target SDK `36`, architecture `arm64-v8a`.
 - Production API `https://messenger.jivo.in` confirmed in both bundled JavaScript files.
-- No Android device was connected for installation testing. These checks validate the build artifacts, not every runtime flow. Start with Internal testing and complete section 10 before production.
+- Installed over the existing app on a physical Realme RMX5313 (Android 15), preserving app data. Initial launch and repeated cold launch stayed alive without new startup crashes. The owner confirmed the sign-in screen; the two-step verification screen was also visually checked. This validates startup, not every signed-in feature. Start with Internal testing and complete section 10 before production.
+- Startup regression fixed: Android excludes `expo-screen-capture` from native autolinking and uses a platform-specific guard without that import. Screenshot detection remains disabled. Five screen-capture guard tests passed.
 
 The store ZIP contains listing copy, images, screenshot metadata and this guide. APK/AAB files are separate downloads. Store screenshots use synthetic data rendered from the Universal web app; compare them with the installed native build before submission.
 
-The owner confirmed this is the first Play upload. Version code 2 is valid for a first release. Increase it for every later Play upload. Keep the package name unchanged.
+The owner confirmed this is the first Play upload. Version code 3 is valid for a first release. Increase it for every later Play upload. Keep the package name unchanged.
 
 ## Local build (selected workflow)
 
@@ -99,7 +102,7 @@ npx.cmd --yes eas-cli@latest build --platform android --profile production
 - Both profiles compile `https://messenger.jivo.in` as the API origin and use the same release version/signing identity.
 - Build configuration lives in [eas.json](../eas.json). See [Expo build profiles](https://docs.expo.dev/build/eas-json/).
 
-After successful builds, download the artifacts from the build URLs printed by EAS into ignored `release-artifacts/`. Name them `jivo-jm-1.0.1-2.apk` and `jivo-jm-1.0.1-2.aab`. Record each build ID, Git commit and SHA-256:
+After successful builds, download the artifacts from the build URLs printed by EAS into ignored `release-artifacts/`. Name them `jivo-jm-1.0.2-3.apk` and `jivo-jm-1.0.2-3.aab`. Record each build ID, Git commit and SHA-256:
 
 ```powershell
 Get-FileHash release-artifacts\*.apk,release-artifacts\*.aab -Algorithm SHA256
