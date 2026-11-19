@@ -76,6 +76,13 @@
     "android:ready": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/android-ready.ps1"
   },
   "private": true,
+  "expo": {
+    "autolinking": {
+      "android": {
+        "exclude": ["expo-screen-capture"]
+      }
+    }
+  },
   "overrides": {
     "xcode": {
       "uuid": "11.1.1"
