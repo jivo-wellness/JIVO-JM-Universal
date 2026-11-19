@@ -139,7 +139,7 @@ function ConversationRow({ item, selected, disabled, typing, online, onPress, on
   return <Pressable accessibilityRole="button" accessibilityLabel={`Open ${title}`} disabled={disabled} onPress={onPress} onLongPress={onMenu} delayLongPress={450} {...(Platform.OS === 'web' ? { onContextMenu: (e: { preventDefault: () => void }) => { e.preventDefault(); onMenu() }, onKeyDown: (e: { key: string; shiftKey: boolean; preventDefault: () => void }) => { if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); onMenu() } } } as object : {})} style={state => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 12, backgroundColor: selected ? c.successSoft : state.pressed || isHovered(state) ? rowHover(c.dark) : 'transparent', ...listPointer })}>
     <View style={{ position: 'relative', flexShrink: 0 }}>
       <ChatAvatar name={item.kind === 'direct' ? item.peer?.name || title : title} seed={item.peer?.id ?? item.id} uri={mediaUrl(item.avatar_url, origin)} group={item.kind === 'group'} />
-      {online && <View accessible accessibilityLabel="online" pointerEvents="none" style={{ position: 'absolute', top: 0, right: 0, width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: c.shell, backgroundColor: c.brandFill }} />}
+      {online && <View accessible accessibilityLabel="online" pointerEvents="none" style={{ position: 'absolute', top: 0, right: 0, width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: c.shell, backgroundColor: '#4ade80' }} />}
     </View>
     <View style={{ flex: 1, minWidth: 0 }}>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
