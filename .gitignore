@@ -17,7 +17,7 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
-
+*.log
 # Metro
 .metro-health-check*
 
@@ -54,3 +54,7 @@ yarn-error.*
 /credentials.json
 /google-services.json
 /release-artifacts/
+
+# Local IDE settings and temporary build/test output
+/.idea/
+/.tmp/
